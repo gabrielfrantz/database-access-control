@@ -1,0 +1,56 @@
+name: Apply DB Access
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'users-access-requests/**.yml'
+
+jobs:
+  apply-access:
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Detect modified and deleted files
+        id: changes
+        run: |
+          echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "DELETED_FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Aplicar acessos (arquivos modificados ou adicionados)
+        if: steps.changes.outputs.MODIFIED_FILES != ''
+        run: |
+          echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
+            echo "Aplicando permissões do arquivo: $file"
+            python scripts/apply_permissions.py "$file"
+          done
+
+      - name: Revogar acessos (arquivos deletados)
+        if: steps.changes.outputs.DELETED_FILES != ''
+        run: |
+          echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
+            echo "Revogando permissões do arquivo removido: $file"
+            git show ${{ github.event.before }}:$file > /tmp/tmpfile.yml
+            python scripts/revoke_permissions.py /tmp/tmpfile.yml
+          done

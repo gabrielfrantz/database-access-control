@@ -1,0 +1,127 @@
+name: Request DB Access
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: "Ambiente (dev, stg, prod)"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stg
+          - prod
+      email:
+        description: "Email do usuário (ex: nome.sobrenome@empresa.com)"
+        required: true
+        type: string
+      host:
+        description: "Endpoint do banco (ex: db.xxxxx.rds.amazonaws.com)"
+        required: true
+        type: string  
+      engine:
+        description: "Engine do banco de dados (postgres, mysql, aurora)"
+        required: true
+        type: choice
+        options:
+          - postgres
+          - mysql
+          - aurora
+      database:
+        description: "Nome do banco de dados"
+        required: true
+        type: string
+      region:
+        description: "Região AWS (ex: us-east-1)"
+        required: true
+        type: string
+      port:
+        description: "Porta do banco (ex: 5432 ou 3306)"
+        required: true
+        type: string
+      schemas:
+        description: "Schemas e permissões em JSON (ex: [{\"nome\":\"public\",\"permissions\":[\"SELECT\"]}])"
+        required: false
+        type: string
+      revogar:
+        description: "Revogar permissões (deletar o YAML)? true ou false"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  generate-or-delete-yaml:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências Python
+        run: pip install pyyaml
+
+      - name: Definir nome de usuário e caminho do arquivo
+        id: setup
+        run: |
+          usuario="${{ github.event.inputs.email }}"
+          engine="${{ github.event.inputs.engine }}"
+          db="${{ github.event.inputs.database }}"
+          nome_usuario="$(echo $usuario | cut -d '@' -f1)"
+          nome_arquivo="$nome_usuario-$engine-$db.yml"
+          caminho="users-access-requests/${{ github.event.inputs.ambiente }}/$nome_arquivo"
+          branch_name="access-${nome_usuario}-${engine}-${db}-$(date +%s)"
+          echo "nome_arquivo=$nome_arquivo" >> $GITHUB_OUTPUT
+          echo "caminho=$caminho" >> $GITHUB_OUTPUT
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+      - name: Criar nova branch
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -b ${{ steps.setup.outputs.branch_name }}
+
+      - name: Revogar acesso (deletar arquivo YAML)
+        if: ${{ github.event.inputs.revogar == true }}
+        run: |
+          caminho="${{ steps.setup.outputs.caminho }}"
+          if [ -f "$caminho" ]; then
+            git rm "$caminho"
+            git commit -m "Revogar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
+          else
+            echo "Arquivo não encontrado: $caminho"
+
+      - name: Gerar ou atualizar YAML com permissões
+        if: ${{ github.event.inputs.revogar != true }}
+        run: |
+          mkdir -p users-access-requests/${{ github.event.inputs.ambiente }}
+          echo "host: ${{ github.event.inputs.host }}" >> ${{ steps.setup.outputs.caminho }}
+          echo "user: ${{ github.event.inputs.email }}">> ${{ steps.setup.outputs.caminho }}
+          echo "database: ${{ github.event.inputs.database }}" >> ${{ steps.setup.outputs.caminho }}
+          echo "engine: ${{ github.event.inputs.engine }}" >> ${{ steps.setup.outputs.caminho }}
+          echo "region: ${{ github.event.inputs.region }}" >> ${{ steps.setup.outputs.caminho }}
+          echo "port: ${{ github.event.inputs.port }}" >> ${{ steps.setup.outputs.caminho }}
+          echo "schemas:" >> ${{ steps.setup.outputs.caminho }}
+          echo '${{ github.event.inputs.schemas }}' | python3 -c "import sys, json, yaml; schemas = yaml.safe_dump({'schemas': json.load(sys.stdin)}); print(schemas)" | tail -n +2 >> ${{ steps.setup.outputs.caminho }}
+
+          git add ${{ steps.setup.outputs.caminho }}
+          git commit -m "Criar/atualizar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
+
+      - name: Push para a nova branch
+        run: |
+          git push origin ${{ steps.setup.outputs.branch_name }}
+
+      - name: Criar Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Solicitação de acesso para ${{ github.event.inputs.email }}"
+          body: |
+            **Solicitação de acesso ao banco**
+            - Ambiente: `${{ github.event.inputs.ambiente }}`
+            - Usuário: `${{ github.event.inputs.email }}`
+            - Banco: `${{ github.event.inputs.database }}`
+            - Engine: `${{ github.event.inputs.engine }}`
+            - Região: `${{ github.event.inputs.region }}`
+            - Permissões: ${{ github.event.inputs.schemas }}
+          branch: ${{ steps.setup.outputs.branch_name }}
+          base: main
+

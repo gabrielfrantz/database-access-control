@@ -1,0 +1,4 @@
+boto3
+PyYAML
+psycopg2-binary
+pymysql
