@@ -66,7 +66,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: github-actions-rds-access
+          aws-region: ${{ github.event.inputs.region }}
 
       - name: Instalar dependências Python
         run: pip install pyyaml
