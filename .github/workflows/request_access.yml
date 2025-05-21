@@ -49,12 +49,13 @@ on:
         default: false
         type: boolean
 
+permissions:
+  id-token: write
+  contents: write
+
 jobs:
   generate-or-delete-yaml:
     runs-on: ubuntu-24.04
-    permissions:
-      id-token: write
-      contents: write
     environment: development
 
     steps:
@@ -65,7 +66,6 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: github-actions-rds-access
           aws-region: ${{ github.event.inputs.region }}
 
       - name: Instalar dependências Python
