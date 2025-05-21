@@ -100,11 +100,6 @@ jobs:
           echo "caminho=$caminho" >> $GITHUB_OUTPUT
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
 
-      - name: Configura o git
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
       - name: Revogar acesso (deletar arquivo YAML)
         if: ${{ github.event.inputs.revogar == true }}
         run: |
