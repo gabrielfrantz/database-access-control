@@ -74,7 +74,7 @@ jobs:
       - name: Buscar parâmetros do banco no Parameter Store
         id: parametros
         run: |
-          key="/rds-access-control/${{ github.event.inputs.database }}-${{ github.event.inputs.engine }}"
+          key="${{ github.event.inputs.database }}-${{ github.event.inputs.engine }}"
           user=$(aws ssm get-parameter --name "$key-user" --with-decryption --query Parameter.Value --output text)
           password=$(aws ssm get-parameter --name "$key-password" --with-decryption --query Parameter.Value --output text)
           echo "DB_USER=$user" >> $GITHUB_ENV
