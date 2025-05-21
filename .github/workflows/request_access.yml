@@ -49,13 +49,14 @@ on:
         default: false
         type: boolean
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   generate-or-delete-yaml:
     runs-on: ubuntu-24.04
-    
-    permissions:
-      id-token: write
-      contents: write
+    environment: development
 
     steps:
       - name: Checkout repo
