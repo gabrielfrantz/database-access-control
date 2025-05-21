@@ -132,10 +132,6 @@ jobs:
           git add ${{ steps.setup.outputs.caminho }}
           git commit -m "Criar/atualizar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
 
-      - name: Push para a nova branch
-        run: |
-          git push origin ${{ steps.setup.outputs.branch_name }}
-
       - name: Criar Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
@@ -154,4 +150,3 @@ jobs:
           commit-message: "feat: acesso para ${{ github.event.inputs.email }}"
           delete-branch: false
           draft: false
-          always-create: true
