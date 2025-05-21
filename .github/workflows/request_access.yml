@@ -51,7 +51,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 jobs:
   generate-or-delete-yaml:
