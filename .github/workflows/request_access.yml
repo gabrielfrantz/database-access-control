@@ -80,6 +80,9 @@ jobs:
           user=$(echo "$config" | grep "^${db_key}-user=" | cut -d'=' -f2-)
           pass=$(echo "$config" | grep "^${db_key}-password=" | cut -d'=' -f2-)
 
+          echo "::add-mask::$user"
+          echo "::add-mask::$pass"
+
           echo "DB_USER=$user" >> $GITHUB_ENV
           echo "DB_PASS=$pass" >> $GITHUB_ENV
 
