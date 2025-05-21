@@ -140,8 +140,9 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          title: "Solicitação de acesso para ${{ github.event.inputs.email }}"
           branch: ${{ steps.setup.outputs.branch_name }}
+          base: main
+          title: "Solicitação de acesso para ${{ github.event.inputs.email }}"
           body: |
             **Solicitação de acesso ao banco**
             - Ambiente: `${{ github.event.inputs.ambiente }}`
@@ -150,8 +151,7 @@ jobs:
             - Engine: `${{ github.event.inputs.engine }}`
             - Região: `${{ github.event.inputs.region }}`
             - Permissões: ${{ github.event.inputs.schemas }}
-          base: main
-          draft: false
-          delete-branch: false
           commit-message: "feat: acesso para ${{ github.event.inputs.email }}"
-
+          delete-branch: false
+          draft: false
+          always-create: true
