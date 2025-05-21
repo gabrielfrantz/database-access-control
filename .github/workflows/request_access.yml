@@ -129,9 +129,6 @@ jobs:
           echo "schemas:" >> ${{ steps.setup.outputs.caminho }}
           echo '${{ github.event.inputs.schemas }}' | python3 -c "import sys, json, yaml; schemas = yaml.safe_dump({'schemas': json.load(sys.stdin)}); print(schemas)" | tail -n +2 >> ${{ steps.setup.outputs.caminho }}
 
-          git add ${{ steps.setup.outputs.caminho }}
-          git commit -m "Criar/atualizar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
-
       - name: Criar Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
