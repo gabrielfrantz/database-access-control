@@ -86,11 +86,12 @@ jobs:
             fi
           done
 
-      - name: Revogar permissões (arquivos deletados)
+      - name: Revogar permissões
         if: steps.changes.outputs.DELETED_FILES != ''
         run: |
           echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
             echo "Revogando permissões do arquivo removido: $file"
-            git show ${{ github.event.before }}:$file > /tmp/tmpfile.yml
-            python scripts/revoke_permissions.py /tmp/tmpfile.yml
+            git show ${{ github.event.before }}:$file > /tmp/before.yml
+            echo '{}' > /tmp/after.yml  # ou use um arquivo válido sem schemas
+            python scripts/revoke_permissions.py /tmp/before.yml /tmp/after.yml
           done
