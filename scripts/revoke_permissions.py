@@ -89,7 +89,8 @@ def revoke_permissions(old_yaml_path, new_yaml_path):
     with open(new_yaml_path, 'r') as f:
         dados_depois = yaml.safe_load(f) or {}
 
-    validate_yaml(dados_antes)
+    if "schemas" in dados_depois:
+        validate_yaml(dados_depois)
 
     engine = dados_antes["engine"].lower()
     if engine not in VALID_ENGINES:
@@ -103,7 +104,6 @@ def revoke_permissions(old_yaml_path, new_yaml_path):
     user = os.environ["DB_USER"]
     password = os.environ["DB_PASS"]
 
-    # Se arquivo novo está vazio ou não tem 'schemas', revoga tudo
     if "schemas" not in dados_depois:
         revogar_schemas = dados_antes["schemas"]
     else:
