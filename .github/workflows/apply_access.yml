@@ -85,7 +85,7 @@ jobs:
             fi
           done
 
-      - name: Revogar permissões (arquivos deletados)
+      - name: Revogar permissões
         if: steps.changes.outputs.DELETED_FILES != ''
         run: |
           echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
