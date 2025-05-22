@@ -91,12 +91,6 @@ def revoke_permissions(old_yaml_path, new_yaml_path):
 
     validate_yaml(dados_antes)
 
-    # Se dados_depois não tem schemas, assume que todas as permissões devem ser revogadas
-    revogar_schemas = dados_antes["schemas"] if "schemas" not in dados_depois else calcular_permissoes_revogadas(dados_antes["schemas"], dados_depois.get("schemas", []))
-
-    validate_yaml(dados_antes)
-    validate_yaml(dados_depois)
-
     engine = dados_antes["engine"].lower()
     if engine not in VALID_ENGINES:
         raise ValueError(f"Engine não suportado: {engine}")
@@ -106,11 +100,15 @@ def revoke_permissions(old_yaml_path, new_yaml_path):
     region = dados_antes["region"]
     target_user = dados_antes["user"]
     port = int(dados_antes.get("port", 5432 if "postgres" in engine else 3306))
-
     user = os.environ["DB_USER"]
     password = os.environ["DB_PASS"]
 
-    revogar_schemas = calcular_permissoes_revogadas(dados_antes["schemas"], dados_depois["schemas"])
+    # Se arquivo novo está vazio ou não tem 'schemas', revoga tudo
+    if "schemas" not in dados_depois:
+        revogar_schemas = dados_antes["schemas"]
+    else:
+        revogar_schemas = calcular_permissoes_revogadas(dados_antes["schemas"], dados_depois["schemas"])
+
     if not revogar_schemas:
         print("Nenhuma permissão a ser revogada.")
         return

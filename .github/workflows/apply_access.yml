@@ -91,7 +91,8 @@ jobs:
         run: |
           echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
             echo "Revogando permissões do arquivo removido: $file"
-            git show ${{ github.event.before }}:$file > /tmp/before.yml
-            echo '{}' > /tmp/after.yml  # ou use um arquivo válido sem schemas
-            python scripts/revoke_permissions.py /tmp/before.yml /tmp/after.yml
+            before_file="/tmp/before_$(basename "$file")"
+            git show ${{ github.event.before }}:$file > "$before_file"
+            echo '{}' > /tmp/after_empty.yml
+            python scripts/revoke_permissions.py "$before_file" /tmp/after_empty.yml
           done
