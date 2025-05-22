@@ -42,7 +42,7 @@ on:
         required: false
         default: false
         type: boolean
-      remover:
+      remover_permissoes:
         description: "Remover apenas permissões informadas?"
         required: false
         default: false
@@ -101,16 +101,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       
       - name: Revogar acesso (deletar arquivo YAML)
-        if: ${{ github.event.inputs.revogar == true }}
+        if: ${{ github.event.inputs.revogar == 'true' }}
         run: |
-          if [ -f "${{ steps.setup.outputs.caminho }}" ]; then
-            git rm "${{ steps.setup.outputs.caminho }}"
-            git commit -m "Revogar acesso do usuário ${{ github.event.inputs.email }}"
+          caminho="${{ steps.setup.outputs.caminho }}"
+          if [ -f "$caminho" ]; then
+            git rm "$caminho"
+            git commit -m "Revogar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
           else
-            echo "Arquivo não encontrado."
+            echo "Arquivo não encontrado: $caminho"
+          fi
 
       - name: Gerar ou atualizar YAML com permissões
-        if: ${{ github.event.inputs.revogar != true }}
+        if: ${{ github.event.inputs.revogar != 'true' && github.event.inputs.schemas != '' }}
         env:
           INPUT_HOST: ${{ github.event.inputs.host }}
           INPUT_EMAIL: ${{ github.event.inputs.email }}
@@ -118,7 +120,7 @@ jobs:
           INPUT_ENGINE: ${{ github.event.inputs.engine }}
           INPUT_REGION: ${{ github.event.inputs.region }}
           INPUT_PORT: ${{ github.event.inputs.port }}
-          REMOVER_PERMISSOES: ${{ github.event.inputs.remover }}
+          REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
         run: |
           mkdir -p $(dirname "${{ steps.setup.outputs.caminho }}")
           python3 scripts/merge_permissions.py "${{ steps.setup.outputs.caminho }}" '${{ github.event.inputs.schemas }}'
