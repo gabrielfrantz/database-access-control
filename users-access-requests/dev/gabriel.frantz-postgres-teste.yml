@@ -8,9 +8,9 @@ schemas:
 - nome: public
   permissions:
   - DELETE
-  - SELECT
   - INSERT
-  - UPDATE
+  - SELECT
 - nome: teste
   permissions:
   - UPDATE
+remover_permissoes: true
