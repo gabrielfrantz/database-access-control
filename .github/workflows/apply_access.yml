@@ -55,7 +55,11 @@ jobs:
         if: steps.changes.outputs.MODIFIED_FILES != ''
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
-            git show ${{ github.event.before }}:$file > "/tmp/before_$(basename "$file")"
+            if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
+              git show ${{ github.event.before }}:$file > "/tmp/before_$(basename "$file")"
+            else
+              echo "Arquivo $file não existia no commit anterior, ignorando diff."
+            fi
           done
 
       - name: Processar permissões
