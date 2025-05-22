@@ -124,6 +124,7 @@ jobs:
           echo '${{ github.event.inputs.schemas }}' | python3 -c "import sys, json, yaml; schemas = yaml.safe_dump({'schemas': json.load(sys.stdin)}); print(schemas)" | tail -n +2 >> ${{ steps.setup.outputs.caminho }}
 
       - name: Criar Pull Request
+        id: create_pr
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GH_TOKEN }}
@@ -140,4 +141,8 @@ jobs:
             - Permissões: ${{ github.event.inputs.schemas }}
           commit-message: "feat: acesso para ${{ github.event.inputs.email }}"
           delete-branch: false
-          draft: false
+
+      - name: Mostrar URL do Pull Request criado
+        run: | 
+          echo "Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
+
