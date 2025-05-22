@@ -9,8 +9,7 @@ schemas:
   permissions:
   - DELETE
   - SELECT
-  - UPDATE
 - nome: teste
   permissions:
-  - DELETE
   - UPDATE
+remover_permissoes: true
