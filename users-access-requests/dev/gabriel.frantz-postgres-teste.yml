@@ -8,5 +8,3 @@ schemas:
 - nome: public
   permissions:
   - INSERT
-  - SELECT
-  - UPDATE
