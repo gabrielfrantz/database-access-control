@@ -71,6 +71,9 @@ jobs:
             user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
             pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
 
+            echo "::add-mask::$user"
+            echo "::add-mask::$pass"
+
             export DB_USER="$user"
             export DB_PASS="$pass"
             export DB_HOST=$(yq -r '.host' "$file")
