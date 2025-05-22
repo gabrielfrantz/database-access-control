@@ -4,6 +4,17 @@ import yaml
 
 VALID_ENGINES = ["postgres", "postgresql", "mysql"]
 
+PG_TABLE_PERMS = {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"}
+PG_FUNCTION_PERMS = {"EXECUTE"}
+PG_SCHEMA_PERMS = {"USAGE", "CREATE"}
+PG_DB_PERMS = {"TEMP"}
+
+MYSQL_ALL_PERMS = {
+    "SELECT", "INSERT", "UPDATE", "DELETE",
+    "CREATE", "DROP", "INDEX", "ALTER",
+    "REFERENCES", "EXECUTE", "USAGE", "ALL PRIVILEGES"
+}
+
 def validate_yaml(data):
     required_fields = ["user", "database", "engine", "region", "host", "schemas"]
     for field in required_fields:
@@ -51,9 +62,15 @@ def revoke_postgres_permissions(conn, username, schemas):
     with conn.cursor() as cur:
         for schema in schemas:
             for perm in schema["permissions"]:
-                cur.execute(
-                    f'REVOKE {perm.upper()} ON ALL TABLES IN SCHEMA {schema["nome"]} FROM "{username}";'
-                )
+                p = perm.upper()
+                if p in PG_TABLE_PERMS or p == "ALL PRIVILEGES":
+                    cur.execute(f'REVOKE {p} ON ALL TABLES IN SCHEMA {schema["nome"]} FROM "{username}";')
+                elif p in PG_FUNCTION_PERMS:
+                    cur.execute(f'REVOKE {p} ON ALL FUNCTIONS IN SCHEMA {schema["nome"]} FROM "{username}";')
+                elif p in PG_SCHEMA_PERMS:
+                    cur.execute(f'REVOKE {p} ON SCHEMA {schema["nome"]} FROM "{username}";')
+                elif p in PG_DB_PERMS:
+                    cur.execute(f'REVOKE {p} ON DATABASE {conn.get_dsn_parameters()["dbname"]} FROM "{username}";')
     conn.commit()
 
 def revoke_mysql_permissions(conn, username, database, schemas):
