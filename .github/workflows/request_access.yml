@@ -126,7 +126,7 @@ jobs:
       - name: Criar Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
           branch: ${{ steps.setup.outputs.branch_name }}
           base: main
           title: "Solicitação de acesso para ${{ github.event.inputs.email }}"
