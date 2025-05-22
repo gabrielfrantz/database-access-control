@@ -29,6 +29,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Instalar yq
+        run: |
+          sudo apt-get update && sudo apt-get install -y yq
+
       - name: Detect modified and deleted files
         id: changes
         run: |
@@ -40,10 +44,23 @@ jobs:
           git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Aplicar acessos (arquivos modificados ou adicionados)
-        if: steps.changes.outputs.MODIFIED_FILES != ''
+      - name: Aplicar permissões (loop por arquivos modificados)
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
+            echo "🔍 Processando arquivo: $file"
+
+            db=$(yq '.database' "$file")
+            engine=$(yq '.engine' "$file")
+
+            key="rds-access-control-${db}-${engine}"
+
+            user=$(aws ssm get-parameter --name "$key-user" --with-decryption --query Parameter.Value --output text)
+            pass=$(aws ssm get-parameter --name "$key-password" --with-decryption --query Parameter.Value --output text)
+
+            export DB_USER="$user"
+            export DB_PASS="$pass"
+            export DB_HOST=$(yq '.host' "$file")
+
             echo "Aplicando permissões do arquivo: $file"
             python scripts/apply_permissions.py "$file"
           done
