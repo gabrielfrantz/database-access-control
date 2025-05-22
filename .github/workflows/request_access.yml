@@ -56,7 +56,7 @@ permissions:
 jobs:
   generate-or-delete-yaml:
     runs-on: ubuntu-24.04
-    environment: development
+    #environment: development
 
     steps:
       - name: Checkout repo
