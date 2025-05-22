@@ -7,9 +7,8 @@ port: 5432
 schemas:
 - nome: public
   permissions:
-  - SELECT
   - UPDATE
 - nome: teste
   permissions:
-  - SELECT
   - UPDATE
+remover_permissoes: true
