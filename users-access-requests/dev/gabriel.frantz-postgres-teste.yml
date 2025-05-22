@@ -8,6 +8,7 @@ schemas:
 - nome: public
   permissions:
   - DELETE
+  - SELECT
   - INSERT
   - UPDATE
 - nome: teste
