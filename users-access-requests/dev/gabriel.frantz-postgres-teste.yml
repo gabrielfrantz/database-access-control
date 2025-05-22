@@ -10,6 +10,7 @@ schemas:
   - DELETE
   - INSERT
   - SELECT
+  - UPDATE
 - nome: teste
   permissions:
   - UPDATE
