@@ -8,4 +8,4 @@ schemas:
 - nome: public
   permissions:
   - SELECT
-remover_permissoes: true
+  - UPDATE
