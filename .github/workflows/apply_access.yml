@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'users-access-requests/**.yml'
+  workflow_dispatch:
 
 jobs:
   apply-access:
