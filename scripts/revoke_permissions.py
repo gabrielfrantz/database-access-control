@@ -87,7 +87,12 @@ def revoke_permissions(old_yaml_path, new_yaml_path):
         dados_antes = yaml.safe_load(f)
 
     with open(new_yaml_path, 'r') as f:
-        dados_depois = yaml.safe_load(f)
+        dados_depois = yaml.safe_load(f) or {}
+
+    validate_yaml(dados_antes)
+
+    # Se dados_depois não tem schemas, assume que todas as permissões devem ser revogadas
+    revogar_schemas = dados_antes["schemas"] if "schemas" not in dados_depois else calcular_permissoes_revogadas(dados_antes["schemas"], dados_depois.get("schemas", []))
 
     validate_yaml(dados_antes)
     validate_yaml(dados_depois)
