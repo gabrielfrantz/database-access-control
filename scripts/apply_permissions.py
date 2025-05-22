@@ -108,10 +108,10 @@ def apply_permissions(yaml_path):
     port = int(data.get("port", 5432 if "postgres" in engine else 3306))
 
     if "postgres" in engine:
-        conn = connect_postgres(host, port, user, token, dbname)
+        conn = connect_postgres(host, port, user, password, dbname)
         apply_postgres_permissions(conn, target_user, schemas)
     elif "mysql" in engine:
-        conn = connect_mysql(host, port, user, token, dbname)
+        conn = connect_mysql(host, port, user, password, dbname)
         apply_mysql_permissions(conn, target_user, dbname, schemas)
 
     conn.close()
