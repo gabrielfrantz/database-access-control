@@ -9,7 +9,7 @@ schemas:
   permissions:
   - DELETE
   - INSERT
-  - SELECT
+  - UPDATE
 - nome: teste
   permissions:
   - UPDATE
