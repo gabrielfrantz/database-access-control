@@ -7,6 +7,6 @@ port: 5432
 schemas:
 - nome: public
   permissions:
-  - INSERT
+  - EXECUTE
   - SELECT
   - UPDATE
