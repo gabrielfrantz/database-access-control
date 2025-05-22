@@ -54,28 +54,26 @@ jobs:
       - name: Aplicar permissões (loop por arquivos modificados)
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
-            echo "🔍 Processando arquivo: $file"
+            echo "Processando arquivo: $file"
 
-            db=$(yq '.database' "$file")
-            engine=$(yq '.engine' "$file")
+            db=$(yq -r '.database' "$file")
+            engine=$(yq -r '.engine' "$file")
+
+            if [[ -z "$db" || -z "$engine" ]]; then
+              echo "ERRO: Campos 'database' ou 'engine' estão vazios no arquivo $file"
+              exit 1
+            fi
 
             key="rds-access-control-${db}-${engine}"
+
+            echo "Buscando parâmetros: $key-user / $key-password"
 
             user=$(aws ssm get-parameter --name "$key-user" --with-decryption --query Parameter.Value --output text)
             pass=$(aws ssm get-parameter --name "$key-password" --with-decryption --query Parameter.Value --output text)
 
             export DB_USER="$user"
             export DB_PASS="$pass"
-            export DB_HOST=$(yq '.host' "$file")
-
-            echo "Arquivo: $file"
-            db=$(yq '.database' "$file")
-            engine=$(yq '.engine' "$file")
-            echo "Database: $db"
-            echo "Engine: $engine"
-
-            key="rds-access-control-${db}-${engine}"
-            echo "Esperado parâmetro: $key-user"
+            export DB_HOST=$(yq -r '.host' "$file")
 
             echo "Aplicando permissões do arquivo: $file"
             python scripts/apply_permissions.py "$file"
