@@ -50,6 +50,12 @@ jobs:
           git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\// { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Salvar estado anterior dos arquivos modificados
+        run: |
+          echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
+            git show ${{ github.event.before }}:$file > "/tmp/before_$(basename "$file")"
+          done
+
       - name: Processar permissões
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
@@ -65,11 +71,22 @@ jobs:
             export DB_PASS="$pass"
             export DB_HOST=$(yq -r '.host' "$file")
 
-            if [ "$(yq -r '.remover_permissoes // false' "$file")" = "true" ]; then
-              echo "Revogando permissões..."
-              python scripts/revoke_permissions.py "$file"
-            else
-              echo "Aplicando permissões..."
-              python scripts/apply_permissions.py "$file"
+            before="/tmp/before_$(basename "$file")"
+
+            if [ -f "$before" ]; then
+              echo "Arquivo anterior encontrado. Executando revogação baseada no diff."
+              python scripts/revoke_permissions.py "$before" "$file"
             fi
+
+            echo "Aplicando permissões..."
+            python scripts/apply_permissions.py "$file"
+          done
+
+      - name: Revogar permissões (arquivos deletados)
+        if: steps.changes.outputs.DELETED_FILES != ''
+        run: |
+          echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
+            echo "Revogando permissões do arquivo removido: $file"
+            git show ${{ github.event.before }}:$file > /tmp/tmpfile.yml
+            python scripts/revoke_permissions.py /tmp/tmpfile.yml
           done

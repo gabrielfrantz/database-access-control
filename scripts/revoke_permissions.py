@@ -32,6 +32,21 @@ def connect_mysql(host, port, user, password, database):
         ssl={"ssl": {}}
     )
 
+def calcular_permissoes_revogadas(antes, depois):
+    antes_map = {s["nome"]: set(s["permissions"]) for s in antes}
+    depois_map = {s["nome"]: set(s["permissions"]) for s in depois}
+
+    revogadas = []
+    for schema, perms_antes in antes_map.items():
+        perms_depois = depois_map.get(schema, set())
+        diferenca = perms_antes - perms_depois
+        if diferenca:
+            revogadas.append({
+                "nome": schema,
+                "permissions": sorted(list(diferenca))
+            })
+    return revogadas
+
 def revoke_postgres_permissions(conn, username, schemas):
     with conn.cursor() as cur:
         for schema in schemas:
@@ -50,34 +65,43 @@ def revoke_mysql_permissions(conn, username, database, schemas):
                 )
     conn.commit()
 
-def revoke_permissions(yaml_path):
-    with open(yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
+def revoke_permissions(old_yaml_path, new_yaml_path):
+    with open(old_yaml_path, 'r') as f:
+        dados_antes = yaml.safe_load(f)
 
-    validate_yaml(data)
+    with open(new_yaml_path, 'r') as f:
+        dados_depois = yaml.safe_load(f)
 
-    engine = data["engine"].lower()
+    validate_yaml(dados_antes)
+    validate_yaml(dados_depois)
+
+    engine = dados_antes["engine"].lower()
     if engine not in VALID_ENGINES:
         raise ValueError(f"Engine não suportado: {engine}")
 
-    host = data["host"]
-    dbname = data["database"]
-    region = data["region"]
-    target_user = data["user"]
-    port = int(data.get("port", 5432 if "postgres" in engine else 3306))
-    schemas = data["schemas"]
+    host = dados_antes["host"]
+    dbname = dados_antes["database"]
+    region = dados_antes["region"]
+    target_user = dados_antes["user"]
+    port = int(dados_antes.get("port", 5432 if "postgres" in engine else 3306))
 
     user = os.environ["DB_USER"]
     password = os.environ["DB_PASS"]
 
+    revogar_schemas = calcular_permissoes_revogadas(dados_antes["schemas"], dados_depois["schemas"])
+    if not revogar_schemas:
+        print("Nenhuma permissão a ser revogada.")
+        return
+
     if "postgres" in engine:
         conn = connect_postgres(host, port, user, password, dbname)
-        revoke_postgres_permissions(conn, target_user, schemas)
+        revoke_postgres_permissions(conn, target_user, revogar_schemas)
     elif "mysql" in engine:
         conn = connect_mysql(host, port, user, password, dbname)
-        revoke_mysql_permissions(conn, target_user, dbname, schemas)
+        revoke_mysql_permissions(conn, target_user, dbname, revogar_schemas)
 
     conn.close()
+
     print("\nPermissões revogadas com sucesso!\n")
     print(f"Usuário: {target_user}")
     print(f"Banco: {dbname}")
@@ -85,9 +109,8 @@ def revoke_permissions(yaml_path):
     print(f"Região: {region}")
     print(f"Porta: {port}")
     print("Permissões revogadas:")
-    for schema in schemas:
+    for schema in revogar_schemas:
         print(f"  - Schema: {schema['nome']} → {', '.join(schema['permissions'])}")
 
 if __name__ == "__main__":
-    revoke_permissions(sys.argv[1])
-    
+    revoke_permissions(sys.argv[1], sys.argv[2])
