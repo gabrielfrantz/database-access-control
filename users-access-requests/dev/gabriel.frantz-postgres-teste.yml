@@ -1,0 +1,15 @@
+host: postgres-database.cub2weyucu0q.us-east-1.rds.amazonaws.com
+user: gabriel.frantz@universo.univates.br
+database: teste
+engine: postgres
+region: us-east-1
+port: 5432
+schemas:
+- nome: public
+  permissions:
+  - DELETE
+  - INSERT
+  - UPDATE
+- nome: teste
+  permissions:
+  - UPDATE
