@@ -9,4 +9,4 @@ schemas:
   permissions:
   - EXECUTE
   - SELECT
-  - UPDATE
+remover_permissoes: true
