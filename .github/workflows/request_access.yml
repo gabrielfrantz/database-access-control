@@ -7,44 +7,43 @@ on:
         description: "Ambiente (dev, stg, prod)"
         required: true
         type: choice
-        options:
-          - dev
-          - stg
-          - prod
+        options: [dev, stg, prod]
       email:
-        description: "Email do usuário (ex: nome.sobrenome@empresa.com)"
+        description: "Email do usuário (ex: nome@empresa.com)"
         required: true
         type: string
       host:
         description: "Endpoint do banco (ex: db.xxxxx.rds.amazonaws.com)"
         required: true
-        type: string  
+        type: string
       engine:
-        description: "Engine do banco de dados (postgres, mysql, aurora)"
+        description: "Engine do banco de dados"
         required: true
         type: choice
-        options:
-          - postgres
-          - mysql
-          - aurora
+        options: [postgres, mysql, aurora]
       database:
         description: "Nome do banco de dados"
         required: true
         type: string
       region:
-        description: "Região AWS (ex: us-east-1)"
+        description: "Região AWS"
         required: true
         type: string
       port:
-        description: "Porta do banco (ex: 5432, 3306)"
+        description: "Porta do banco"
         required: true
         type: string
       schemas:
-        description: "Schemas e permissões em JSON (ex: [{nome:public, permissions:[SELECT,UPDATE]}])"
+        description: "Schemas e permissões em JSON"
         required: false
         type: string
       revogar:
-        description: "Revogar permissões (deletar o YAML)? true ou false"
+        description: "Revogar permissões (deletar YAML)?"
+        required: false
+        default: false
+        type: boolean
+      remover:
+        description: "Remover apenas permissões informadas?"
         required: false
         default: false
         type: boolean
@@ -86,42 +85,40 @@ jobs:
           echo "DB_USER=$user" >> $GITHUB_ENV
           echo "DB_PASS=$pass" >> $GITHUB_ENV
 
-      - name: Definir nome de usuário e caminho do arquivo
+      - name: Definir nome do arquivo
         id: setup
         run: |
-          usuario="${{ github.event.inputs.email }}"
-          engine="${{ github.event.inputs.engine }}"
-          db="${{ github.event.inputs.database }}"
-          nome_usuario="$(echo $usuario | cut -d '@' -f1)"
-          nome_arquivo="$nome_usuario-$engine-$db.yml"
+          nome_usuario="$(echo ${{ github.event.inputs.email }} | cut -d '@' -f1)"
+          nome_arquivo="$nome_usuario-${{ github.event.inputs.engine }}-${{ github.event.inputs.database }}.yml"
           caminho="users-access-requests/${{ github.event.inputs.ambiente }}/$nome_arquivo"
-          branch_name="access-${nome_usuario}-${engine}-${db}-$(date +%s)"
-          echo "nome_arquivo=$nome_arquivo" >> $GITHUB_OUTPUT
+          branch_name="access-$nome_usuario-${{ github.event.inputs.engine }}-${{ github.event.inputs.database }}-$(date +%s)"
           echo "caminho=$caminho" >> $GITHUB_OUTPUT
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
 
       - name: Revogar acesso (deletar arquivo YAML)
         if: ${{ github.event.inputs.revogar == true }}
         run: |
-          caminho="${{ steps.setup.outputs.caminho }}"
-          if [ -f "$caminho" ]; then
-            git rm "$caminho"
-            git commit -m "Revogar acesso do usuário ${{ github.event.inputs.email }} em ${{ github.event.inputs.database }}"
+          if [ -f "${{ steps.setup.outputs.caminho }}" ]; then
+            git rm "${{ steps.setup.outputs.caminho }}"
+            git commit -m "Revogar acesso do usuário ${{ github.event.inputs.email }}"
           else
-            echo "Arquivo não encontrado: $caminho"
+            echo "Arquivo não encontrado."
 
       - name: Gerar ou atualizar YAML com permissões
         if: ${{ github.event.inputs.revogar != true }}
+        env:
+          INPUT_HOST: ${{ github.event.inputs.host }}
+          INPUT_EMAIL: ${{ github.event.inputs.email }}
+          INPUT_DATABASE: ${{ github.event.inputs.database }}
+          INPUT_ENGINE: ${{ github.event.inputs.engine }}
+          INPUT_REGION: ${{ github.event.inputs.region }}
+          INPUT_PORT: ${{ github.event.inputs.port }}
+          REMOVER_PERMISSOES: ${{ github.event.inputs.remover }}
         run: |
-          mkdir -p users-access-requests/${{ github.event.inputs.ambiente }}
-          echo "host: ${{ github.event.inputs.host }}" >> ${{ steps.setup.outputs.caminho }}
-          echo "user: ${{ github.event.inputs.email }}">> ${{ steps.setup.outputs.caminho }}
-          echo "database: ${{ github.event.inputs.database }}" >> ${{ steps.setup.outputs.caminho }}
-          echo "engine: ${{ github.event.inputs.engine }}" >> ${{ steps.setup.outputs.caminho }}
-          echo "region: ${{ github.event.inputs.region }}" >> ${{ steps.setup.outputs.caminho }}
-          echo "port: ${{ github.event.inputs.port }}" >> ${{ steps.setup.outputs.caminho }}
-          echo "schemas:" >> ${{ steps.setup.outputs.caminho }}
-          echo '${{ github.event.inputs.schemas }}' | python3 -c "import sys, json, yaml; schemas = yaml.safe_dump({'schemas': json.load(sys.stdin)}); print(schemas)" | tail -n +2 >> ${{ steps.setup.outputs.caminho }}
+          mkdir -p $(dirname "${{ steps.setup.outputs.caminho }}")
+          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.caminho }}" '${{ github.event.inputs.schemas }}'
+          git add "${{ steps.setup.outputs.caminho }}"
+          git commit -m "Atualizar acesso do usuário ${{ github.event.inputs.email }}"
 
       - name: Criar Pull Request
         id: create_pr
@@ -143,6 +140,5 @@ jobs:
           delete-branch: false
 
       - name: Mostrar URL do Pull Request criado
-        run: | 
+        run: |
           echo "Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
-

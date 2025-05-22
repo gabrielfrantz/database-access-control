@@ -37,56 +37,42 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Instalar yq
-        run: |
-          sudo apt-get update && sudo apt-get install -y yq
+        run: sudo apt-get update && sudo apt-get install -y yq
 
       - name: Detect modified and deleted files
         id: changes
         run: |
           echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\// { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           echo "DELETED_FILES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\// { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Aplicar permissões (loop por arquivos modificados)
+      - name: Aplicar permissões
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
-            echo "Processando arquivo: $file"
-
+            echo "Processando: $file"
             db=$(yq -r '.database' "$file")
             engine=$(yq -r '.engine' "$file")
 
-            if [[ -z "$db" || -z "$engine" ]]; then
-              echo "ERRO: Campos 'database' ou 'engine' estão vazios no arquivo $file"
-              exit 1
-            fi
-
-            echo "Buscando parâmetros: $key-user / $key-password"
-
             config=$(aws ssm get-parameter --name "rds-access-control" --with-decryption --query Parameter.Value --output text)
-
             user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
             pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
-
-            echo "::add-mask::$user"
-            echo "::add-mask::$pass"
 
             export DB_USER="$user"
             export DB_PASS="$pass"
             export DB_HOST=$(yq -r '.host' "$file")
 
-            echo "Aplicando permissões do arquivo: $file"
             python scripts/apply_permissions.py "$file"
           done
 
-      - name: Revogar acessos (arquivos deletados)
+      - name: Revogar permissões
         if: steps.changes.outputs.DELETED_FILES != ''
         run: |
           echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
-            echo "Revogando permissões do arquivo removido: $file"
+            echo "Revogando permissões do arquivo: $file"
             git show ${{ github.event.before }}:$file > /tmp/tmpfile.yml
             python scripts/revoke_permissions.py /tmp/tmpfile.yml
           done
