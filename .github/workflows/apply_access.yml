@@ -50,10 +50,10 @@ jobs:
           git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\// { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Aplicar permissões
+      - name: Processar permissões
         run: |
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
-            echo "Processando: $file"
+            echo "Processando arquivo: $file"
             db=$(yq -r '.database' "$file")
             engine=$(yq -r '.engine' "$file")
 
@@ -65,14 +65,11 @@ jobs:
             export DB_PASS="$pass"
             export DB_HOST=$(yq -r '.host' "$file")
 
-            python scripts/apply_permissions.py "$file"
-          done
-
-      - name: Revogar permissões
-        if: steps.changes.outputs.DELETED_FILES != ''
-        run: |
-          echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
-            echo "Revogando permissões do arquivo: $file"
-            git show ${{ github.event.before }}:$file > /tmp/tmpfile.yml
-            python scripts/revoke_permissions.py /tmp/tmpfile.yml
+            if [ "$(yq -r '.remover_permissoes // false' "$file")" = "true" ]; then
+              echo "Revogando permissões..."
+              python scripts/revoke_permissions.py "$file"
+            else
+              echo "Aplicando permissões..."
+              python scripts/apply_permissions.py "$file"
+            fi
           done

@@ -31,18 +31,22 @@ for item in novo_input:
         if remover:
             schemas_existentes[nome] -= novas_perms
             if not schemas_existentes[nome]:
-                del schemas_existentes[nome]  # Remove schema vazio
+                del schemas_existentes[nome]
         else:
             schemas_existentes[nome] |= novas_perms
     elif not remover:
         schemas_existentes[nome] = novas_perms
 
-# Atualiza dados e salva novamente
 schemas_final = [
     {"nome": nome, "permissions": sorted(list(perms))}
     for nome, perms in schemas_existentes.items()
 ]
 dados["schemas"] = schemas_final
+
+if remover:
+    dados["remover_permissoes"] = True
+elif "remover_permissoes" in dados:
+    del dados["remover_permissoes"]
 
 with open(caminho, "w") as f:
     yaml.safe_dump(dados, f, sort_keys=False)
