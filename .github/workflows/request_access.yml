@@ -95,6 +95,11 @@ jobs:
           echo "caminho=$caminho" >> $GITHUB_OUTPUT
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
 
+      - name: Configurar identidade do Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      
       - name: Revogar acesso (deletar arquivo YAML)
         if: ${{ github.event.inputs.revogar == true }}
         run: |
