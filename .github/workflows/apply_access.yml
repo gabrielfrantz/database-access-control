@@ -68,6 +68,15 @@ jobs:
             export DB_PASS="$pass"
             export DB_HOST=$(yq '.host' "$file")
 
+            echo "Arquivo: $file"
+            db=$(yq '.database' "$file")
+            engine=$(yq '.engine' "$file")
+            echo "Database: $db"
+            echo "Engine: $engine"
+
+            key="rds-access-control-${db}-${engine}"
+            echo "Esperado parâmetro: $key-user"
+
             echo "Aplicando permissões do arquivo: $file"
             python scripts/apply_permissions.py "$file"
           done
