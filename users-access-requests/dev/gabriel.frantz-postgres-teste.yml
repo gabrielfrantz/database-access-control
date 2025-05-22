@@ -8,8 +8,8 @@ schemas:
 - nome: public
   permissions:
   - DELETE
+  - INSERT
   - SELECT
 - nome: teste
   permissions:
   - UPDATE
-remover_permissoes: true
