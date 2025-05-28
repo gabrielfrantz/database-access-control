@@ -1,0 +1,408 @@
+name: MySQL Access Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: "Ambiente"
+        required: true
+        type: choice
+        options: [dev, stg, prod]
+      email:
+        description: "Email do usuário (ex: nome@empresa.com)"
+        required: true
+        type: string
+      host:
+        description: "Endpoint do banco MySQL"
+        required: true
+        type: string
+      database:
+        description: "Nome do banco de dados"
+        required: true
+        type: string
+      region:
+        description: "Região AWS"
+        required: true
+        type: string
+      port:
+        description: "Porta do banco"
+        required: true
+        default: "3306"
+        type: string
+      schema:
+        description: "Nome do schema/database (apenas um)"
+        required: true
+        type: string
+      tabelas:
+        description: "Nomes das tabelas (separadas por vírgula) - deixe vazio para aplicar no schema inteiro"
+        required: false
+        type: string
+      perm_select:
+        description: "SELECT - Consultar dados"
+        required: false
+        default: false
+        type: boolean
+      perm_insert:
+        description: "INSERT - Inserir dados"
+        required: false
+        default: false
+        type: boolean
+      perm_update:
+        description: "UPDATE - Atualizar dados"
+        required: false
+        default: false
+        type: boolean
+      perm_delete:
+        description: "DELETE - Deletar dados"
+        required: false
+        default: false
+        type: boolean
+      perm_create:
+        description: "CREATE - Criar tabelas"
+        required: false
+        default: false
+        type: boolean
+      perm_drop:
+        description: "DROP - Deletar tabelas"
+        required: false
+        default: false
+        type: boolean
+      perm_index:
+        description: "INDEX - Criar índices"
+        required: false
+        default: false
+        type: boolean
+      perm_alter:
+        description: "ALTER - Alterar estrutura"
+        required: false
+        default: false
+        type: boolean
+      perm_references:
+        description: "REFERENCES - Criar chaves estrangeiras"
+        required: false
+        default: false
+        type: boolean
+      perm_execute:
+        description: "EXECUTE - Executar procedures"
+        required: false
+        default: false
+        type: boolean
+      perm_usage:
+        description: "USAGE - Usar banco"
+        required: false
+        default: false
+        type: boolean
+      perm_all:
+        description: "ALL PRIVILEGES - Todas as permissões"
+        required: false
+        default: false
+        type: boolean
+      revogar:
+        description: "Revogar permissões (deletar YAML)?"
+        required: false
+        default: false
+        type: boolean
+      remover_permissoes:
+        description: "Remover apenas permissões informadas?"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  process-mysql-access:
+    runs-on: ubuntu-24.04
+    environment: development
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ github.event.inputs.region }}
+          session-name: GitHubActions-MySQL-${{ github.run_id }}
+
+      - name: Validar entrada
+        run: |
+          echo "🔍 Validando entrada para MySQL..."
+          
+          # Validar email
+          if ! echo "${{ github.event.inputs.email }}" | grep -E '^[^@]+@[^@]+\.[^@]+$'; then
+            echo "❌ Email inválido"
+            exit 1
+          fi
+          
+          # Validar porta
+          if ! echo "${{ github.event.inputs.port }}" | grep -E '^[0-9]+$'; then
+            echo "❌ Porta deve ser numérica"
+            exit 1
+          fi
+          
+          # Verificar se pelo menos uma permissão foi selecionada (exceto para revogação)
+          if [ "${{ github.event.inputs.revogar }}" != "true" ]; then
+            perms_selecionadas=0
+            [ "${{ github.event.inputs.perm_select }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_insert }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_update }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_delete }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_create }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_drop }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_index }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_alter }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_references }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_execute }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_usage }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            [ "${{ github.event.inputs.perm_all }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            
+            if [ $perms_selecionadas -eq 0 ]; then
+              echo "❌ Pelo menos uma permissão deve ser selecionada"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Validação concluída"
+
+      - name: Instalar dependências Python
+        run: pip install pyyaml
+
+      - name: Buscar credenciais no Parameter Store
+        id: parametros
+        run: |
+          echo "🔍 Buscando credenciais no Parameter Store..."
+          
+          config=$(aws ssm get-parameter \
+            --name "rds-access-control" \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text)
+
+          db_key="${{ github.event.inputs.database }}-mysql"
+          user=$(echo "$config" | grep "^${db_key}-user=" | cut -d'=' -f2-)
+          pass=$(echo "$config" | grep "^${db_key}-password=" | cut -d'=' -f2-)
+
+          if [ -z "$user" ] || [ -z "$pass" ]; then
+            echo "❌ Credenciais não encontradas para ${db_key}"
+            exit 1
+          fi
+
+          echo "::add-mask::$user"
+          echo "::add-mask::$pass"
+
+          echo "DB_USER=$user" >> $GITHUB_ENV
+          echo "DB_PASS=$pass" >> $GITHUB_ENV
+
+      - name: Construir JSON de permissões
+        id: build_json
+        run: |
+          echo "🔧 Construindo JSON de permissões..."
+          
+          # Construir array de permissões
+          permissions="["
+          first=true
+          
+          [ "${{ github.event.inputs.perm_select }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"SELECT\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_insert }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"INSERT\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_update }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"UPDATE\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_delete }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"DELETE\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_create }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"CREATE\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_drop }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"DROP\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_index }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"INDEX\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_alter }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"ALTER\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_references }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"REFERENCES\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_execute }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"EXECUTE\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_usage }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"USAGE\""
+            first=false
+          }
+          [ "${{ github.event.inputs.perm_all }}" == "true" ] && {
+            [ "$first" == "false" ] && permissions="$permissions,"
+            permissions="$permissions\"ALL PRIVILEGES\""
+            first=false
+          }
+          
+          permissions="$permissions]"
+          
+          # Verificar se é granular (tabelas específicas) ou schema completo
+          if [ -n "${{ github.event.inputs.tabelas }}" ]; then
+            # Granular - construir array de tabelas
+            echo "📊 Modo granular - tabelas específicas"
+            tabelas_array="["
+            IFS=',' read -ra TABELAS <<< "${{ github.event.inputs.tabelas }}"
+            first_table=true
+            for tabela in "${TABELAS[@]}"; do
+              tabela=$(echo "$tabela" | xargs) # trim whitespace
+              [ "$first_table" == "false" ] && tabelas_array="$tabelas_array,"
+              tabelas_array="$tabelas_array{\"nome\":\"$tabela\",\"permissions\":$permissions}"
+              first_table=false
+            done
+            tabelas_array="$tabelas_array]"
+            
+            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tabelas_array}]"
+          else
+            # Schema completo
+            echo "📋 Modo schema completo"
+            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"permissions\":$permissions}]"
+          fi
+          
+          echo "JSON gerado: $json"
+          echo "schemas_json=$json" >> $GITHUB_OUTPUT
+
+      - name: Definir nome do arquivo
+        id: setup
+        run: |
+          nome_usuario="$(echo ${{ github.event.inputs.email }} | cut -d '@' -f1)"
+          nome_arquivo="$nome_usuario-mysql-${{ github.event.inputs.database }}.yml"
+          caminho="users-access-requests/${{ github.event.inputs.ambiente }}/$nome_arquivo"
+          branch_name="mysql-access-$nome_usuario-${{ github.event.inputs.database }}-$(date +%s)"
+          echo "caminho=$caminho" >> $GITHUB_OUTPUT
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+      - name: Configurar identidade do Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      
+      - name: Revogar acesso (deletar arquivo YAML)
+        if: ${{ github.event.inputs.revogar == 'true' }}
+        run: |
+          caminho="${{ steps.setup.outputs.caminho }}"
+          if [ -f "$caminho" ]; then
+            git rm "$caminho"
+            git commit -m "🗑️ MySQL: Revogar acesso do usuário ${{ github.event.inputs.email }}"
+          else
+            echo "⚠️ Arquivo não encontrado: $caminho"
+          fi
+
+      - name: Gerar ou atualizar YAML com permissões
+        if: ${{ github.event.inputs.revogar != 'true' }}
+        env:
+          INPUT_HOST: ${{ github.event.inputs.host }}
+          INPUT_EMAIL: ${{ github.event.inputs.email }}
+          INPUT_DATABASE: ${{ github.event.inputs.database }}
+          INPUT_ENGINE: "mysql"
+          INPUT_REGION: ${{ github.event.inputs.region }}
+          INPUT_PORT: ${{ github.event.inputs.port }}
+          REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
+        run: |
+          echo "🔧 Processando permissões MySQL..."
+          mkdir -p $(dirname "${{ steps.setup.outputs.caminho }}")
+          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.caminho }}" '${{ steps.build_json.outputs.schemas_json }}'
+          git add "${{ steps.setup.outputs.caminho }}"
+          
+          if [ "${{ github.event.inputs.remover_permissoes }}" == "true" ]; then
+            git commit -m "➖ MySQL: Remover permissões do usuário ${{ github.event.inputs.email }}"
+          else
+            git commit -m "➕ MySQL: Atualizar acesso do usuário ${{ github.event.inputs.email }}"
+          fi
+
+      - name: Criar Pull Request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: ${{ steps.setup.outputs.branch_name }}
+          base: main
+          title: "🐬 MySQL: Acesso para ${{ github.event.inputs.email }}"
+          body: |
+            ## 🐬 MySQL - Solicitação de Acesso
+            
+            **📋 Informações:**
+            - 👤 **Usuário:** `${{ github.event.inputs.email }}`
+            - 🌍 **Ambiente:** `${{ github.event.inputs.ambiente }}`
+            - 🗄️ **Banco:** `${{ github.event.inputs.database }}`
+            - 🔌 **Host:** `${{ github.event.inputs.host }}`
+            - 🚪 **Porta:** `${{ github.event.inputs.port }}`
+            - 🌐 **Região:** `${{ github.event.inputs.region }}`
+            
+            **🎯 Permissões Solicitadas:**
+            - 📁 **Schema:** `${{ github.event.inputs.schema }}`
+            ${{ github.event.inputs.tabelas != '' && format('- 📊 **Tabelas:** `{0}` (granular)', github.event.inputs.tabelas) || '- 📋 **Escopo:** Schema completo' }}
+            
+            **🔑 Permissões:**
+            ${{ github.event.inputs.perm_select == 'true' && '- ✅ SELECT (consultar dados)' || '' }}
+            ${{ github.event.inputs.perm_insert == 'true' && '- ✅ INSERT (inserir dados)' || '' }}
+            ${{ github.event.inputs.perm_update == 'true' && '- ✅ UPDATE (atualizar dados)' || '' }}
+            ${{ github.event.inputs.perm_delete == 'true' && '- ✅ DELETE (deletar dados)' || '' }}
+            ${{ github.event.inputs.perm_create == 'true' && '- ✅ CREATE (criar tabelas)' || '' }}
+            ${{ github.event.inputs.perm_drop == 'true' && '- ✅ DROP (deletar tabelas)' || '' }}
+            ${{ github.event.inputs.perm_index == 'true' && '- ✅ INDEX (criar índices)' || '' }}
+            ${{ github.event.inputs.perm_alter == 'true' && '- ✅ ALTER (alterar estrutura)' || '' }}
+            ${{ github.event.inputs.perm_references == 'true' && '- ✅ REFERENCES (chaves estrangeiras)' || '' }}
+            ${{ github.event.inputs.perm_execute == 'true' && '- ✅ EXECUTE (executar procedures)' || '' }}
+            ${{ github.event.inputs.perm_usage == 'true' && '- ✅ USAGE (usar banco)' || '' }}
+            ${{ github.event.inputs.perm_all == 'true' && '- ✅ ALL PRIVILEGES (todas as permissões)' || '' }}
+            
+            **🎯 Tipo de Operação:**
+            ${{ github.event.inputs.revogar == 'true' && '🗑️ **REVOGAÇÃO TOTAL**' || github.event.inputs.remover_permissoes == 'true' && '➖ **REMOÇÃO PARCIAL**' || '➕ **ADIÇÃO/ATUALIZAÇÃO**' }}
+            
+            **🔍 JSON Gerado:**
+            ```json
+            ${{ steps.build_json.outputs.schemas_json }}
+            ```
+            
+            ---
+            **⚠️ Importante:** Após o merge, as permissões serão aplicadas automaticamente no MySQL.
+          commit-message: "feat: 🐬 MySQL acesso para ${{ github.event.inputs.email }}"
+          delete-branch: false
+
+      - name: Mostrar resultado
+        run: |
+          echo "🎉 Pull Request criado com sucesso!"
+          echo "🔗 URL: ${{ steps.create_pr.outputs.pull-request-url }}"
+          echo ""
+          echo "📋 Resumo MySQL:"
+          echo "  👤 Usuário: ${{ github.event.inputs.email }}"
+          echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
+          echo "  🗄️ Banco: ${{ github.event.inputs.database }}"
+          echo "  📁 Schema: ${{ github.event.inputs.schema }}"
+          echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
+          echo ""
+          echo "⏳ Aguardando aprovação e merge..." 
