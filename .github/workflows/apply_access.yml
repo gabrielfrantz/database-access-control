@@ -9,22 +9,44 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "Apply DB Access"
+      operation_type: "apply"
+
+  # Job principal - só executa se a validação de segurança passar
   apply-access:
+    name: 🔧 Aplicar Permissões de Acesso
     runs-on: ubuntu-24.04
     environment: development
     timeout-minutes: 15
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
 
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com aplicação segura de permissões..."
+          echo ""
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -36,17 +58,17 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Instalar yq
+      - name: Install YQ
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Detect modified and deleted files
+      - name: Detect File Changes
         id: changes
         run: |
           echo "🔍 Detectando mudanças nos arquivos YAML..."
@@ -65,7 +87,7 @@ jobs:
           echo "📊 Arquivos modificados: $modified_count"
           echo "📊 Arquivos deletados: $deleted_count"
 
-      - name: Salvar estado anterior dos arquivos modificados
+      - name: Save Previous File States
         if: steps.changes.outputs.MODIFIED_FILES != ''
         run: |
           echo "💾 Salvando estado anterior dos arquivos modificados..."
@@ -86,7 +108,7 @@ jobs:
             fi
           done
 
-      - name: Processar permissões
+      - name: Process Permissions
         if: steps.changes.outputs.MODIFIED_FILES != ''
         run: |
           echo "🔧 Processando permissões dos arquivos modificados..."
@@ -131,8 +153,13 @@ jobs:
                 continue
               fi
               
+              # Extrair credenciais e mascarar IMEDIATAMENTE
               user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
               pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
+              
+              # MASCARAMENTO IMEDIATO - antes de qualquer validação
+              echo "::add-mask::$user"
+              echo "::add-mask::$pass"
 
               if [ -z "$user" ] || [ -z "$pass" ]; then
                 echo "❌ Credenciais não encontradas para ${db}-${engine}"
@@ -140,19 +167,18 @@ jobs:
                 continue
               fi
 
-              # Mascarar credenciais
-              echo "::add-mask::$user"
-              echo "::add-mask::$pass"
-
-              export DB_USER="$user"
-              export DB_PASS="$pass"
-              export DB_HOST=$(yq -r '.host' "$file")
+              # Usar variáveis locais em vez de export
+              db_user="$user"
+              db_pass="$pass"
+              db_host=$(yq -r '.host' "$file")
 
               # Verificar se existe estado anterior e processar diff
               before_file="/tmp/before_states/$(basename "$file")"
               if [ -f "$before_file" ] && [ -s "$before_file" ] && [ "$(cat "$before_file")" != "{}" ]; then
                 echo "🔄 Executando revogação baseada no diff..."
-                if python scripts/revoke_permissions.py "$before_file" "$file"; then
+                # Executar revogação com variáveis de ambiente seguras
+                env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_permissions.py "$before_file" "$file"
+                if [ $? -eq 0 ]; then
                   echo "✅ Revogação de permissões concluída"
                 else
                   echo "⚠️ Erro na revogação, mas continuando com aplicação"
@@ -163,7 +189,9 @@ jobs:
 
               # Aplicar novas permissões
               echo "➕ Aplicando permissões para usuário: $user_email"
-              if python scripts/apply_permissions.py "$file"; then
+              # Executar aplicação com variáveis de ambiente seguras
+              env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/apply_permissions.py "$file"
+              if [ $? -eq 0 ]; then
                 echo "✅ Permissões aplicadas com sucesso para: $user_email"
                 success_count=$((success_count + 1))
               else
@@ -174,105 +202,115 @@ jobs:
           done
           
           echo ""
-          echo "📊 Resumo do processamento:"
+          echo "📊 RESUMO DO PROCESSAMENTO:"
           echo "✅ Sucessos: $success_count"
           echo "❌ Erros: $error_count"
 
-      - name: Revogar permissões
+      - name: Process Deleted Files
         if: steps.changes.outputs.DELETED_FILES != ''
         run: |
-          echo "🗑️ Processando revogação de arquivos deletados..."
-          success_count=0
+          echo "🗑️ Processando arquivos deletados (revogação completa)..."
+          revoked_count=0
           error_count=0
           
           echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
             if [ -n "$file" ]; then
               echo ""
-              echo "📁 Revogando permissões do arquivo removido: $file"
+              echo "🗑️ Processando arquivo deletado: $file"
+              
+              # Obter estado anterior do arquivo
+              if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
+                git show ${{ github.event.before }}:$file > "/tmp/deleted_file.yml"
+                
+                # Extrair informações do arquivo deletado
+                db=$(yq -r '.database' "/tmp/deleted_file.yml" 2>/dev/null)
+                engine=$(yq -r '.engine' "/tmp/deleted_file.yml" 2>/dev/null)
+                user_email=$(yq -r '.user' "/tmp/deleted_file.yml" 2>/dev/null)
 
-              before_file="/tmp/before_states/$(basename "$file")"
-              after_file="/tmp/after_$(basename "$file")"
+                if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
+                  echo "❌ Campos obrigatórios ausentes no arquivo deletado: $file"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
 
-              # Recuperar estado anterior do arquivo deletado
-              if git show ${{ github.event.before }}:$file > "$before_file" 2>/dev/null; then
-                echo "✅ Estado anterior recuperado"
+                echo "🔍 Buscando credenciais para revogação: ${db}-${engine}..."
+                
+                # Buscar credenciais no Parameter Store
+                config=$(aws ssm get-parameter \
+                  --name "rds-access-control" \
+                  --with-decryption \
+                  --query Parameter.Value \
+                  --output text 2>/dev/null)
+                
+                if [ $? -ne 0 ] || [ -z "$config" ]; then
+                  echo "❌ Erro ao acessar Parameter Store para revogação"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+                
+                # Extrair credenciais e mascarar IMEDIATAMENTE
+                user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
+                pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
+                
+                # MASCARAMENTO IMEDIATO
+                echo "::add-mask::$user"
+                echo "::add-mask::$pass"
+
+                if [ -z "$user" ] || [ -z "$pass" ]; then
+                  echo "❌ Credenciais não encontradas para revogação: ${db}-${engine}"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+
+                # Usar variáveis locais
+                db_user="$user"
+                db_pass="$pass"
+                db_host=$(yq -r '.host' "/tmp/deleted_file.yml")
+
+                # Executar revogação completa
+                echo "🗑️ Revogando todas as permissões para usuário: $user_email"
+                env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_all_permissions.py "/tmp/deleted_file.yml"
+                if [ $? -eq 0 ]; then
+                  echo "✅ Permissões revogadas com sucesso para: $user_email"
+                  revoked_count=$((revoked_count + 1))
+                else
+                  echo "❌ Erro ao revogar permissões para: $user_email"
+                  error_count=$((error_count + 1))
+                fi
+                
+                rm -f "/tmp/deleted_file.yml"
               else
-                echo "❌ Não foi possível recuperar estado anterior do arquivo: $file"
-                error_count=$((error_count + 1))
-                continue
-              fi
-
-              # Criar arquivo vazio para indicar revogação total
-              echo '{}' > "$after_file"
-
-              # Extrair informações do arquivo anterior
-              db=$(yq -r '.database' "$before_file" 2>/dev/null)
-              engine=$(yq -r '.engine' "$before_file" 2>/dev/null)
-              host=$(yq -r '.host' "$before_file" 2>/dev/null)
-              user_email=$(yq -r '.user' "$before_file" 2>/dev/null)
-
-              if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
-                echo "❌ Campos obrigatórios ausentes no arquivo anterior: $file"
-                error_count=$((error_count + 1))
-                continue
-              fi
-
-              echo "🔍 Buscando credenciais para ${db}-${engine}..."
-              
-              # Buscar credenciais no Parameter Store
-              config=$(aws ssm get-parameter \
-                --name "rds-access-control" \
-                --with-decryption \
-                --query Parameter.Value \
-                --output text 2>/dev/null)
-              
-              if [ $? -ne 0 ] || [ -z "$config" ]; then
-                echo "❌ Erro ao acessar Parameter Store"
-                error_count=$((error_count + 1))
-                continue
-              fi
-              
-              user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
-              pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
-
-              if [ -z "$user" ] || [ -z "$pass" ]; then
-                echo "❌ Credenciais não encontradas para ${db}-${engine}"
-                error_count=$((error_count + 1))
-                continue
-              fi
-
-              # Mascarar credenciais
-              echo "::add-mask::$user"
-              echo "::add-mask::$pass"
-
-              export DB_USER="$user"
-              export DB_PASS="$pass"
-              export DB_HOST="$host"
-
-              # Executar revogação total
-              echo "🗑️ Executando revogação total para usuário: $user_email"
-              if python scripts/revoke_permissions.py "$before_file" "$after_file"; then
-                echo "✅ Revogação total concluída para: $user_email"
-                success_count=$((success_count + 1))
-              else
-                echo "❌ Erro na revogação total para: $user_email"
+                echo "⚠️ Não foi possível obter estado anterior do arquivo: $file"
                 error_count=$((error_count + 1))
               fi
-              
-              # Limpar arquivos temporários
-              rm -f "$before_file" "$after_file"
             fi
           done
           
           echo ""
-          echo "📊 Resumo da revogação:"
-          echo "✅ Sucessos: $success_count"
+          echo "📊 RESUMO DA REVOGAÇÃO:"
+          echo "✅ Revogações: $revoked_count"
           echo "❌ Erros: $error_count"
 
-      - name: Limpeza de arquivos temporários
-        if: always()
+      - name: Show Final Summary
         run: |
-          echo "🧹 Limpando arquivos temporários..."
-          rm -rf /tmp/before_states /tmp/after_* /tmp/before_*
-          echo "✅ Limpeza concluída"
+          echo ""
+          echo "🎉 PROCESSAMENTO CONCLUÍDO!"
+          echo "=========================="
+          echo ""
+          echo "📊 Resumo Final:"
+          
+          modified_count=$(echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | grep -c . || echo "0")
+          deleted_count=$(echo "${{ steps.changes.outputs.DELETED_FILES }}" | grep -c . || echo "0")
+          
+          echo "  📝 Arquivos modificados processados: $modified_count"
+          echo "  🗑️ Arquivos deletados processados: $deleted_count"
+          echo ""
+          
+          if [ "$modified_count" -eq 0 ] && [ "$deleted_count" -eq 0 ]; then
+            echo "ℹ️ Nenhuma mudança em arquivos de permissão detectada"
+          else
+            echo "✅ Todas as mudanças foram processadas com sucesso"
+          fi
+          echo ""
+          echo "🔗 Verifique os logs acima para detalhes específicos de cada operação"
 
