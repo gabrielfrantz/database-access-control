@@ -72,7 +72,8 @@ jobs:
         id: changes
         run: |
           echo "🔍 Detectando mudanças nos arquivos YAML..."
-          
+
+          # Detectar mudanças via git diff
           echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
           git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
