@@ -464,13 +464,3 @@ jobs:
           echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
           echo ""
           echo "⏳ Aguardando aprovação e merge..."
-
-  # Chamar workflow de aplicação de permissões
-  call-apply-access:
-    name: 🔧 Chamar Apply Access
-    needs: process-mysql-access
-    if: needs.process-mysql-access.result == 'success'
-    uses: ./.github/workflows/apply_access.yml
-    with:
-      environment: ${{ github.event.inputs.ambiente }}
-    secrets: inherit 
