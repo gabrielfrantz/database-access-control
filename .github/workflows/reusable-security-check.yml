@@ -1,0 +1,194 @@
+name: 🛡️ Validação de Segurança Reutilizável
+
+on:
+  workflow_call:
+    inputs:
+      workflow_name:
+        description: 'Nome do workflow que está chamando a validação'
+        required: true
+        type: string
+      operation_type:
+        description: 'Tipo de operação (mysql, postgresql, apply)'
+        required: true
+        type: string
+    outputs:
+      security_status:
+        description: 'Status da validação de segurança'
+        value: ${{ jobs.security-validation.outputs.status }}
+      is_secure:
+        description: 'Indica se passou na validação'
+        value: ${{ jobs.security-validation.outputs.secure }}
+
+jobs:
+  security-validation:
+    name: 🔒 Validação de Segurança
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    
+    outputs:
+      status: ${{ steps.final_check.outputs.status }}
+      secure: ${{ steps.final_check.outputs.secure }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Start Security Validation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA INICIADA"
+          echo "=================================="
+          echo "📋 Workflow: ${{ inputs.workflow_name }}"
+          echo "🎯 Operação: ${{ inputs.operation_type }}"
+          echo "⏰ Timestamp: $(date -u)"
+          echo "👤 Acionado por: ${{ github.actor }}"
+          echo ""
+
+      - name: Run Main Validator
+        id: main_validator
+        run: |
+          echo "🔍 Executando validador principal de segurança..."
+          
+          if python scripts/security_validator.py; then
+            echo "✅ Validador principal: APROVADO"
+            echo "main_status=PASS" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Validador principal: FALHOU"
+            echo "main_status=FAIL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Credential Masking
+        id: masking_check
+        run: |
+          echo "🎭 Verificando mascaramento de credenciais..."
+          issues_found=0
+          
+          for file in .github/workflows/*.yml; do
+            # Pular workflows que não lidam com credenciais
+            if [[ "$(basename $file)" =~ ^(security_check|reusable-security-check)\.yml$ ]]; then
+              continue
+            fi
+            
+            echo "Analisando $(basename $file)..."
+            
+            # Verificar se há extração de credenciais
+            if grep -q "Parameter.Value" "$file"; then
+              # Verificar se há mascaramento após extração
+              if ! grep -A 10 "cut -d'=' -f2-" "$file" | grep -q "::add-mask::"; then
+                echo "⚠️ Problema de mascaramento em $(basename $file)"
+                issues_found=$((issues_found + 1))
+              fi
+            fi
+            
+            # Verificar uso de export com credenciais
+            if grep -q "^[^#]*export.*DB_\(USER\|PASS\)" "$file"; then
+              echo "⚠️ Uso de 'export' com credenciais em $(basename $file)"
+              issues_found=$((issues_found + 1))
+            fi
+          done
+          
+          if [ $issues_found -gt 0 ]; then
+            echo "❌ $issues_found problemas de mascaramento encontrados"
+            echo "masking_status=FAIL" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Mascaramento: APROVADO"
+            echo "masking_status=PASS" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Credential Leaks
+        id: leak_check
+        run: |
+          echo "🕵️ Verificando vazamentos de credenciais..."
+          
+          # Verificar logs perigosos nos scripts
+          if grep -r "print.*\(DB_USER\|DB_PASS\|password\)" scripts/ 2>/dev/null | grep -v "target_user\|Usuário:\|User:"; then
+            echo "❌ Possível logging de credenciais encontrado nos scripts"
+            echo "leak_status=FAIL" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Nenhum vazamento detectado nos scripts"
+            echo "leak_status=PASS" >> $GITHUB_OUTPUT
+          fi
+          
+          # Verificar echo de credenciais nos workflows
+          if grep -r "echo.*\$\(DB_USER\|DB_PASS\)" .github/workflows/ 2>/dev/null | grep -v "add-mask"; then
+            echo "❌ Possível echo de credenciais encontrado nos workflows"
+            echo "leak_status=FAIL" >> $GITHUB_OUTPUT
+          fi
+          
+          # Verificar credenciais hardcoded
+          if grep -r "password\s*=\s*[\"'][^\"']*[\"']" scripts/ 2>/dev/null | grep -v "os.environ"; then
+            echo "❌ Possível credencial hardcoded encontrada"
+            echo "leak_status=FAIL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Python Syntax
+        id: syntax_check
+        run: |
+          echo "🐍 Verificando sintaxe dos scripts Python..."
+          
+          for script in scripts/*.py; do
+            echo "Verificando $(basename $script)..."
+            if ! python -m py_compile "$script"; then
+              echo "❌ Erro de sintaxe em $(basename $script)"
+              echo "syntax_status=FAIL" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          done
+          
+          echo "✅ Sintaxe Python: APROVADA"
+          echo "syntax_status=PASS" >> $GITHUB_OUTPUT
+
+      - name: Final Security Check
+        id: final_check
+        run: |
+          echo ""
+          echo "🛡️ RESULTADO DA VALIDAÇÃO DE SEGURANÇA"
+          echo "======================================"
+          echo ""
+          
+          # Verificar se todas as verificações passaram
+          main_status="${{ steps.main_validator.outputs.main_status }}"
+          masking_status="${{ steps.masking_check.outputs.masking_status }}"
+          leak_status="${{ steps.leak_check.outputs.leak_status }}"
+          syntax_status="${{ steps.syntax_check.outputs.syntax_status }}"
+          
+          echo "📋 Status das Verificações:"
+          echo "  🔍 Validador Principal: ${main_status:-UNKNOWN}"
+          echo "  🎭 Mascaramento: ${masking_status:-UNKNOWN}"
+          echo "  🕵️ Vazamentos: ${leak_status:-UNKNOWN}"
+          echo "  🐍 Sintaxe Python: ${syntax_status:-UNKNOWN}"
+          echo ""
+          
+          if [[ "$main_status" == "PASS" && \
+                "$masking_status" == "PASS" && \
+                "$leak_status" == "PASS" && \
+                "$syntax_status" == "PASS" ]]; then
+            
+            echo "🎉 VALIDAÇÃO: ✅ APROVADA"
+            echo "🔓 Workflow ${{ inputs.workflow_name }} pode prosseguir"
+            echo "status=APPROVED" >> $GITHUB_OUTPUT
+            echo "secure=true" >> $GITHUB_OUTPUT
+            
+          else
+            echo "🚨 VALIDAÇÃO: ❌ REPROVADA"
+            echo "🔒 Workflow ${{ inputs.workflow_name }} BLOQUEADO"
+            echo ""
+            echo "📋 Ações Necessárias:"
+            echo "  1. Corrija os problemas identificados acima"
+            echo "  2. Execute localmente: python scripts/security_validator.py"
+            echo "  3. Commit e push das correções"
+            echo "  4. Execute novamente o workflow"
+            echo ""
+            echo "status=BLOCKED" >> $GITHUB_OUTPUT
+            echo "secure=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi 
