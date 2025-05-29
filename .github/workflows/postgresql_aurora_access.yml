@@ -130,7 +130,7 @@ jobs:
   process-postgresql-aurora-access:
     name: 🐘 Processar Acesso PostgreSQL Aurora
     runs-on: ubuntu-24.04
-    environment: development
+    environment: ${{ github.event.inputs.ambiente }}
     timeout-minutes: 10
     
     # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
@@ -153,7 +153,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ github.event.inputs.region }}
+          aws-region: ${{ secrets.AWS_REGION }}
           session-name: GitHubActions-${{ github.event.inputs.engine_type }}-${{ github.run_id }}
 
       - name: Validate Input
@@ -472,4 +472,14 @@ jobs:
           echo "  📁 Schema: ${{ github.event.inputs.schema }}"
           echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
           echo ""
-          echo "⏳ Aguardando aprovação e merge..." 
+          echo "⏳ Aguardando aprovação e merge..."
+
+  # Chamar workflow de aplicação de permissões
+  call-apply-access:
+    name: 🔧 Chamar Apply Access
+    needs: process-postgresql-aurora-access
+    if: needs.process-postgresql-aurora-access.result == 'success'
+    uses: ./.github/workflows/apply_access.yml
+    with:
+      environment: ${{ github.event.inputs.ambiente }}
+    secrets: inherit 
