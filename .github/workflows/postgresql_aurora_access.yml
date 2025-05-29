@@ -118,23 +118,45 @@ permissions:
   contents: write
 
 jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "PostgreSQL Aurora Access Request"
+      operation_type: "postgresql"
+
+  # Job principal - só executa se a validação de segurança passar
   process-postgresql-aurora-access:
+    name: 🐘 Processar Acesso PostgreSQL Aurora
     runs-on: ubuntu-24.04
     environment: development
     timeout-minutes: 10
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
 
     steps:
-      - name: Checkout repo
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com operações PostgreSQL Aurora seguras..."
+          echo ""
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ github.event.inputs.region }}
           session-name: GitHubActions-${{ github.event.inputs.engine_type }}-${{ github.run_id }}
 
-      - name: Validar entrada
+      - name: Validate Input
         run: |
           echo "🔍 Validando entrada para ${{ github.event.inputs.engine_type }}..."
           
@@ -152,21 +174,21 @@ jobs:
           
           # Verificar se pelo menos uma permissão foi selecionada (exceto para revogação)
           if [ "${{ github.event.inputs.revogar }}" != "true" ]; then
-            perms_selecionadas=0
-            [ "${{ github.event.inputs.perm_select }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_insert }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_update }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_delete }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_truncate }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_references }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_trigger }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_usage }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_execute }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_create }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_temp }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_all }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
+            selected_permissions=0
+            [ "${{ github.event.inputs.perm_select }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_insert }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_update }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_delete }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_truncate }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_references }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_trigger }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_usage }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_execute }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_create }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_temp }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
+            [ "${{ github.event.inputs.perm_all }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
             
-            if [ $perms_selecionadas -eq 0 ]; then
+            if [ $selected_permissions -eq 0 ]; then
               echo "❌ Pelo menos uma permissão deve ser selecionada"
               exit 1
             fi
@@ -174,11 +196,11 @@ jobs:
           
           echo "✅ Validação concluída"
 
-      - name: Instalar dependências Python
+      - name: Install Python Dependencies
         run: pip install pyyaml
 
-      - name: Buscar credenciais no Parameter Store
-        id: parametros
+      - name: Fetch Credentials from Parameter Store
+        id: fetch_credentials
         run: |
           echo "🔍 Buscando credenciais no Parameter Store..."
           
@@ -203,7 +225,7 @@ jobs:
           echo "DB_USER=$user" >> $GITHUB_ENV
           echo "DB_PASS=$pass" >> $GITHUB_ENV
 
-      - name: Construir JSON de permissões
+      - name: Build Permissions JSON
         id: build_json
         run: |
           echo "🔧 Construindo JSON de permissões..."
@@ -279,18 +301,18 @@ jobs:
           if [ -n "${{ github.event.inputs.tabelas }}" ]; then
             # Granular - construir array de tabelas
             echo "📊 Modo granular - tabelas específicas"
-            tabelas_array="["
-            IFS=',' read -ra TABELAS <<< "${{ github.event.inputs.tabelas }}"
+            tables_array="["
+            IFS=',' read -ra TABLES <<< "${{ github.event.inputs.tabelas }}"
             first_table=true
-            for tabela in "${TABELAS[@]}"; do
-              tabela=$(echo "$tabela" | xargs) # trim whitespace
-              [ "$first_table" == "false" ] && tabelas_array="$tabelas_array,"
-              tabelas_array="$tabelas_array{\"nome\":\"$tabela\",\"permissions\":$permissions}"
+            for table in "${TABLES[@]}"; do
+              table=$(echo "$table" | xargs) # Remover espaços em branco
+              [ "$first_table" == "false" ] && tables_array="$tables_array,"
+              tables_array="$tables_array{\"nome\":\"$table\",\"permissions\":$permissions}"
               first_table=false
             done
-            tabelas_array="$tabelas_array]"
+            tables_array="$tables_array]"
             
-            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tabelas_array}]"
+            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tables_array}]"
           else
             # Schema completo
             echo "📋 Modo schema completo"
@@ -300,33 +322,48 @@ jobs:
           echo "JSON gerado: $json"
           echo "schemas_json=$json" >> $GITHUB_OUTPUT
 
-      - name: Definir nome do arquivo
+      - name: Setup File Paths
         id: setup
         run: |
-          nome_usuario="$(echo ${{ github.event.inputs.email }} | cut -d '@' -f1)"
-          nome_arquivo="$nome_usuario-${{ github.event.inputs.engine_type }}-${{ github.event.inputs.database }}.yml"
-          caminho="users-access-requests/${{ github.event.inputs.ambiente }}/$nome_arquivo"
-          branch_name="${{ github.event.inputs.engine_type }}-access-$nome_usuario-${{ github.event.inputs.database }}-$(date +%s)"
-          echo "caminho=$caminho" >> $GITHUB_OUTPUT
+          # Nova estrutura: ambiente/engine/database/usuario.yml
+          user_email="${{ github.event.inputs.email }}"
+          database="${{ github.event.inputs.database }}"
+          environment="${{ github.event.inputs.ambiente }}"
+          engine="${{ github.event.inputs.engine_type }}"
+          
+          # Criar estrutura de diretórios
+          directory="users-access-requests/${environment}/${engine}/${database}"
+          file_path="${directory}/${user_email}.yml"
+          
+          # Nome da branch
+          username="$(echo ${user_email} | cut -d '@' -f1)"
+          branch_name="${engine}-access-${username}-${database}-$(date +%s)"
+          
+          echo "directory=$directory" >> $GITHUB_OUTPUT
+          echo "file_path=$file_path" >> $GITHUB_OUTPUT
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+          echo "user_email=$user_email" >> $GITHUB_OUTPUT
+          echo "engine=$engine" >> $GITHUB_OUTPUT
 
-      - name: Configurar identidade do Git
+      - name: Configure Git Identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       
-      - name: Revogar acesso (deletar arquivo YAML)
+      - name: Revoke Access
         if: ${{ github.event.inputs.revogar == 'true' }}
         run: |
-          caminho="${{ steps.setup.outputs.caminho }}"
-          if [ -f "$caminho" ]; then
-            git rm "$caminho"
-            git commit -m "🗑️ ${{ github.event.inputs.engine_type }}: Revogar acesso do usuário ${{ github.event.inputs.email }}"
+          file_path="${{ steps.setup.outputs.file_path }}"
+          if [ -f "$file_path" ]; then
+            git rm "$file_path"
+            git commit -m "🗑️ ${{ steps.setup.outputs.engine }}: Revogar acesso do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
+            echo "✅ Arquivo removido: $file_path"
           else
-            echo "⚠️ Arquivo não encontrado: $caminho"
+            echo "⚠️ Arquivo não encontrado: $file_path"
+            echo "ℹ️ Usuário pode não ter permissões neste banco ou já foi revogado"
           fi
 
-      - name: Gerar ou atualizar YAML com permissões
+      - name: Generate or Update YAML
         if: ${{ github.event.inputs.revogar != 'true' }}
         env:
           INPUT_HOST: ${{ github.event.inputs.host }}
@@ -338,31 +375,54 @@ jobs:
           REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
         run: |
           echo "🔧 Processando permissões ${{ github.event.inputs.engine_type }}..."
-          mkdir -p $(dirname "${{ steps.setup.outputs.caminho }}")
-          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.caminho }}" '${{ steps.build_json.outputs.schemas_json }}'
-          git add "${{ steps.setup.outputs.caminho }}"
+          echo "📁 Estrutura: ${{ steps.setup.outputs.directory }}"
+          echo "📄 Arquivo: ${{ steps.setup.outputs.file_path }}"
           
-          if [ "${{ github.event.inputs.remover_permissoes }}" == "true" ]; then
-            git commit -m "➖ ${{ github.event.inputs.engine_type }}: Remover permissões do usuário ${{ github.event.inputs.email }}"
+          # Verificar se diretório existe
+          if [ ! -d "${{ steps.setup.outputs.directory }}" ]; then
+            echo "🏗️ Criando nova estrutura de diretórios: ${{ steps.setup.outputs.directory }}"
+            mkdir -p "${{ steps.setup.outputs.directory }}"
           else
-            git commit -m "➕ ${{ github.event.inputs.engine_type }}: Atualizar acesso do usuário ${{ github.event.inputs.email }}"
+            echo "📂 Diretório já existe: ${{ steps.setup.outputs.directory }}"
           fi
+          
+          # Verificar se arquivo existe
+          if [ -f "${{ steps.setup.outputs.file_path }}" ]; then
+            echo "📝 Atualizando arquivo existente: ${{ steps.setup.outputs.file_path }}"
+          else
+            echo "🆕 Criando novo arquivo: ${{ steps.setup.outputs.file_path }}"
+          fi
+          
+          # Processar permissões usando script (que também cria diretórios se necessário)
+          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.file_path }}" '${{ steps.build_json.outputs.schemas_json }}'
+          
+          # Adicionar ao Git
+          git add "${{ steps.setup.outputs.file_path }}"
+          
+          # Commit com mensagem apropriada
+          if [ "${{ github.event.inputs.remover_permissoes }}" == "true" ]; then
+            git commit -m "➖ ${{ steps.setup.outputs.engine }}: Remover permissões do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
+          else
+            git commit -m "➕ ${{ steps.setup.outputs.engine }}: Atualizar acesso do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
+          fi
+          
+          echo "✅ Arquivo processado com sucesso!"
 
-      - name: Criar Pull Request
+      - name: Create Pull Request
         id: create_pr
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ github.token }}
           branch: ${{ steps.setup.outputs.branch_name }}
           base: main
-          title: "${{ github.event.inputs.engine_type == 'postgres' && '🐘 PostgreSQL' || '🌟 Aurora' }}: Acesso para ${{ github.event.inputs.email }}"
+          title: "${{ github.event.inputs.engine_type == 'postgres' && '🐘' || '🌟' }} ${{ github.event.inputs.engine_type }}: Acesso para ${{ github.event.inputs.email }}"
           body: |
             ## ${{ github.event.inputs.engine_type == 'postgres' && '🐘 PostgreSQL' || '🌟 Aurora' }} - Solicitação de Acesso
             
             **📋 Informações:**
             - 👤 **Usuário:** `${{ github.event.inputs.email }}`
-            - 🔧 **Engine:** `${{ github.event.inputs.engine_type }}`
             - 🌍 **Ambiente:** `${{ github.event.inputs.ambiente }}`
+            - ⚙️ **Engine:** `${{ github.event.inputs.engine_type }}`
             - 🗄️ **Banco:** `${{ github.event.inputs.database }}`
             - 🔌 **Host:** `${{ github.event.inputs.host }}`
             - 🚪 **Porta:** `${{ github.event.inputs.port }}`
@@ -396,18 +456,18 @@ jobs:
             
             ---
             **⚠️ Importante:** Após o merge, as permissões serão aplicadas automaticamente no ${{ github.event.inputs.engine_type }}.
-          commit-message: "feat: ${{ github.event.inputs.engine_type }} acesso para ${{ github.event.inputs.email }}"
+          commit-message: "feat: ${{ github.event.inputs.engine_type == 'postgres' && '🐘' || '🌟' }} ${{ github.event.inputs.engine_type }} acesso para ${{ github.event.inputs.email }}"
           delete-branch: false
 
-      - name: Mostrar resultado
+      - name: Show Results
         run: |
           echo "🎉 Pull Request criado com sucesso!"
           echo "🔗 URL: ${{ steps.create_pr.outputs.pull-request-url }}"
           echo ""
           echo "📋 Resumo ${{ github.event.inputs.engine_type }}:"
           echo "  👤 Usuário: ${{ github.event.inputs.email }}"
-          echo "  🔧 Engine: ${{ github.event.inputs.engine_type }}"
           echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
+          echo "  ⚙️ Engine: ${{ github.event.inputs.engine_type }}"
           echo "  🗄️ Banco: ${{ github.event.inputs.database }}"
           echo "  📁 Schema: ${{ github.event.inputs.schema }}"
           echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
