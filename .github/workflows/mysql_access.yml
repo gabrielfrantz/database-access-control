@@ -1,408 +1,316 @@
-name: MySQL Access Request
+name: Apply DB Access
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'users-access-requests/**.yml'
   workflow_dispatch:
-    inputs:
-      ambiente:
-        description: "Ambiente"
-        required: true
-        type: choice
-        options: [dev, stg, prod]
-      email:
-        description: "Email do usuário (ex: nome@empresa.com)"
-        required: true
-        type: string
-      host:
-        description: "Endpoint do banco MySQL"
-        required: true
-        type: string
-      database:
-        description: "Nome do banco de dados"
-        required: true
-        type: string
-      region:
-        description: "Região AWS"
-        required: true
-        type: string
-      port:
-        description: "Porta do banco"
-        required: true
-        default: "3306"
-        type: string
-      schema:
-        description: "Nome do schema/database (apenas um)"
-        required: true
-        type: string
-      tabelas:
-        description: "Nomes das tabelas (separadas por vírgula) - deixe vazio para aplicar no schema inteiro"
-        required: false
-        type: string
-      perm_select:
-        description: "SELECT - Consultar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_insert:
-        description: "INSERT - Inserir dados"
-        required: false
-        default: false
-        type: boolean
-      perm_update:
-        description: "UPDATE - Atualizar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_delete:
-        description: "DELETE - Deletar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_create:
-        description: "CREATE - Criar tabelas"
-        required: false
-        default: false
-        type: boolean
-      perm_drop:
-        description: "DROP - Deletar tabelas"
-        required: false
-        default: false
-        type: boolean
-      perm_index:
-        description: "INDEX - Criar índices"
-        required: false
-        default: false
-        type: boolean
-      perm_alter:
-        description: "ALTER - Alterar estrutura"
-        required: false
-        default: false
-        type: boolean
-      perm_references:
-        description: "REFERENCES - Criar chaves estrangeiras"
-        required: false
-        default: false
-        type: boolean
-      perm_execute:
-        description: "EXECUTE - Executar procedures"
-        required: false
-        default: false
-        type: boolean
-      perm_usage:
-        description: "USAGE - Usar banco"
-        required: false
-        default: false
-        type: boolean
-      perm_all:
-        description: "ALL PRIVILEGES - Todas as permissões"
-        required: false
-        default: false
-        type: boolean
-      revogar:
-        description: "Revogar permissões (deletar YAML)?"
-        required: false
-        default: false
-        type: boolean
-      remover_permissoes:
-        description: "Remover apenas permissões informadas?"
-        required: false
-        default: false
-        type: boolean
-
-permissions:
-  id-token: write
-  contents: write
 
 jobs:
-  process-mysql-access:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "Apply DB Access"
+      operation_type: "apply"
+
+  # Job principal - só executa se a validação de segurança passar
+  apply-access:
+    name: 🔧 Aplicar Permissões de Acesso
     runs-on: ubuntu-24.04
     environment: development
-    timeout-minutes: 10
+    timeout-minutes: 15
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com aplicação segura de permissões..."
+          echo ""
 
-      - name: Configure AWS credentials via OIDC
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ github.event.inputs.region }}
-          session-name: GitHubActions-MySQL-${{ github.run_id }}
+          aws-region: "us-east-1"
 
-      - name: Validar entrada
-        run: |
-          echo "🔍 Validando entrada para MySQL..."
-          
-          # Validar email
-          if ! echo "${{ github.event.inputs.email }}" | grep -E '^[^@]+@[^@]+\.[^@]+$'; then
-            echo "❌ Email inválido"
-            exit 1
-          fi
-          
-          # Validar porta
-          if ! echo "${{ github.event.inputs.port }}" | grep -E '^[0-9]+$'; then
-            echo "❌ Porta deve ser numérica"
-            exit 1
-          fi
-          
-          # Verificar se pelo menos uma permissão foi selecionada (exceto para revogação)
-          if [ "${{ github.event.inputs.revogar }}" != "true" ]; then
-            perms_selecionadas=0
-            [ "${{ github.event.inputs.perm_select }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_insert }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_update }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_delete }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_create }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_drop }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_index }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_alter }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_references }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_execute }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_usage }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            [ "${{ github.event.inputs.perm_all }}" == "true" ] && perms_selecionadas=$((perms_selecionadas + 1))
-            
-            if [ $perms_selecionadas -eq 0 ]; then
-              echo "❌ Pelo menos uma permissão deve ser selecionada"
-              exit 1
-            fi
-          fi
-          
-          echo "✅ Validação concluída"
-
-      - name: Instalar dependências Python
-        run: pip install pyyaml
-
-      - name: Buscar credenciais no Parameter Store
-        id: parametros
-        run: |
-          echo "🔍 Buscando credenciais no Parameter Store..."
-          
-          config=$(aws ssm get-parameter \
-            --name "rds-access-control" \
-            --with-decryption \
-            --query Parameter.Value \
-            --output text)
-
-          db_key="${{ github.event.inputs.database }}-mysql"
-          user=$(echo "$config" | grep "^${db_key}-user=" | cut -d'=' -f2-)
-          pass=$(echo "$config" | grep "^${db_key}-password=" | cut -d'=' -f2-)
-
-          if [ -z "$user" ] || [ -z "$pass" ]; then
-            echo "❌ Credenciais não encontradas para ${db_key}"
-            exit 1
-          fi
-
-          echo "::add-mask::$user"
-          echo "::add-mask::$pass"
-
-          echo "DB_USER=$user" >> $GITHUB_ENV
-          echo "DB_PASS=$pass" >> $GITHUB_ENV
-
-      - name: Construir JSON de permissões
-        id: build_json
-        run: |
-          echo "🔧 Construindo JSON de permissões..."
-          
-          # Construir array de permissões
-          permissions="["
-          first=true
-          
-          [ "${{ github.event.inputs.perm_select }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"SELECT\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_insert }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"INSERT\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_update }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"UPDATE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_delete }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"DELETE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_create }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"CREATE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_drop }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"DROP\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_index }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"INDEX\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_alter }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"ALTER\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_references }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"REFERENCES\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_execute }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"EXECUTE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_usage }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"USAGE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_all }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"ALL PRIVILEGES\""
-            first=false
-          }
-          
-          permissions="$permissions]"
-          
-          # Verificar se é granular (tabelas específicas) ou schema completo
-          if [ -n "${{ github.event.inputs.tabelas }}" ]; then
-            # Granular - construir array de tabelas
-            echo "📊 Modo granular - tabelas específicas"
-            tabelas_array="["
-            IFS=',' read -ra TABELAS <<< "${{ github.event.inputs.tabelas }}"
-            first_table=true
-            for tabela in "${TABELAS[@]}"; do
-              tabela=$(echo "$tabela" | xargs) # trim whitespace
-              [ "$first_table" == "false" ] && tabelas_array="$tabelas_array,"
-              tabelas_array="$tabelas_array{\"nome\":\"$tabela\",\"permissions\":$permissions}"
-              first_table=false
-            done
-            tabelas_array="$tabelas_array]"
-            
-            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tabelas_array}]"
-          else
-            # Schema completo
-            echo "📋 Modo schema completo"
-            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"permissions\":$permissions}]"
-          fi
-          
-          echo "JSON gerado: $json"
-          echo "schemas_json=$json" >> $GITHUB_OUTPUT
-
-      - name: Definir nome do arquivo
-        id: setup
-        run: |
-          nome_usuario="$(echo ${{ github.event.inputs.email }} | cut -d '@' -f1)"
-          nome_arquivo="$nome_usuario-mysql-${{ github.event.inputs.database }}.yml"
-          caminho="users-access-requests/${{ github.event.inputs.ambiente }}/$nome_arquivo"
-          branch_name="mysql-access-$nome_usuario-${{ github.event.inputs.database }}-$(date +%s)"
-          echo "caminho=$caminho" >> $GITHUB_OUTPUT
-          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
-
-      - name: Configurar identidade do Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      
-      - name: Revogar acesso (deletar arquivo YAML)
-        if: ${{ github.event.inputs.revogar == 'true' }}
-        run: |
-          caminho="${{ steps.setup.outputs.caminho }}"
-          if [ -f "$caminho" ]; then
-            git rm "$caminho"
-            git commit -m "🗑️ MySQL: Revogar acesso do usuário ${{ github.event.inputs.email }}"
-          else
-            echo "⚠️ Arquivo não encontrado: $caminho"
-          fi
-
-      - name: Gerar ou atualizar YAML com permissões
-        if: ${{ github.event.inputs.revogar != 'true' }}
-        env:
-          INPUT_HOST: ${{ github.event.inputs.host }}
-          INPUT_EMAIL: ${{ github.event.inputs.email }}
-          INPUT_DATABASE: ${{ github.event.inputs.database }}
-          INPUT_ENGINE: "mysql"
-          INPUT_REGION: ${{ github.event.inputs.region }}
-          INPUT_PORT: ${{ github.event.inputs.port }}
-          REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
-        run: |
-          echo "🔧 Processando permissões MySQL..."
-          mkdir -p $(dirname "${{ steps.setup.outputs.caminho }}")
-          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.caminho }}" '${{ steps.build_json.outputs.schemas_json }}'
-          git add "${{ steps.setup.outputs.caminho }}"
-          
-          if [ "${{ github.event.inputs.remover_permissoes }}" == "true" ]; then
-            git commit -m "➖ MySQL: Remover permissões do usuário ${{ github.event.inputs.email }}"
-          else
-            git commit -m "➕ MySQL: Atualizar acesso do usuário ${{ github.event.inputs.email }}"
-          fi
-
-      - name: Criar Pull Request
-        id: create_pr
-        uses: peter-evans/create-pull-request@v6
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          token: ${{ github.token }}
-          branch: ${{ steps.setup.outputs.branch_name }}
-          base: main
-          title: "🐬 MySQL: Acesso para ${{ github.event.inputs.email }}"
-          body: |
-            ## 🐬 MySQL - Solicitação de Acesso
-            
-            **📋 Informações:**
-            - 👤 **Usuário:** `${{ github.event.inputs.email }}`
-            - 🌍 **Ambiente:** `${{ github.event.inputs.ambiente }}`
-            - 🗄️ **Banco:** `${{ github.event.inputs.database }}`
-            - 🔌 **Host:** `${{ github.event.inputs.host }}`
-            - 🚪 **Porta:** `${{ github.event.inputs.port }}`
-            - 🌐 **Região:** `${{ github.event.inputs.region }}`
-            
-            **🎯 Permissões Solicitadas:**
-            - 📁 **Schema:** `${{ github.event.inputs.schema }}`
-            ${{ github.event.inputs.tabelas != '' && format('- 📊 **Tabelas:** `{0}` (granular)', github.event.inputs.tabelas) || '- 📋 **Escopo:** Schema completo' }}
-            
-            **🔑 Permissões:**
-            ${{ github.event.inputs.perm_select == 'true' && '- ✅ SELECT (consultar dados)' || '' }}
-            ${{ github.event.inputs.perm_insert == 'true' && '- ✅ INSERT (inserir dados)' || '' }}
-            ${{ github.event.inputs.perm_update == 'true' && '- ✅ UPDATE (atualizar dados)' || '' }}
-            ${{ github.event.inputs.perm_delete == 'true' && '- ✅ DELETE (deletar dados)' || '' }}
-            ${{ github.event.inputs.perm_create == 'true' && '- ✅ CREATE (criar tabelas)' || '' }}
-            ${{ github.event.inputs.perm_drop == 'true' && '- ✅ DROP (deletar tabelas)' || '' }}
-            ${{ github.event.inputs.perm_index == 'true' && '- ✅ INDEX (criar índices)' || '' }}
-            ${{ github.event.inputs.perm_alter == 'true' && '- ✅ ALTER (alterar estrutura)' || '' }}
-            ${{ github.event.inputs.perm_references == 'true' && '- ✅ REFERENCES (chaves estrangeiras)' || '' }}
-            ${{ github.event.inputs.perm_execute == 'true' && '- ✅ EXECUTE (executar procedures)' || '' }}
-            ${{ github.event.inputs.perm_usage == 'true' && '- ✅ USAGE (usar banco)' || '' }}
-            ${{ github.event.inputs.perm_all == 'true' && '- ✅ ALL PRIVILEGES (todas as permissões)' || '' }}
-            
-            **🎯 Tipo de Operação:**
-            ${{ github.event.inputs.revogar == 'true' && '🗑️ **REVOGAÇÃO TOTAL**' || github.event.inputs.remover_permissoes == 'true' && '➖ **REMOÇÃO PARCIAL**' || '➕ **ADIÇÃO/ATUALIZAÇÃO**' }}
-            
-            **🔍 JSON Gerado:**
-            ```json
-            ${{ steps.build_json.outputs.schemas_json }}
-            ```
-            
-            ---
-            **⚠️ Importante:** Após o merge, as permissões serão aplicadas automaticamente no MySQL.
-          commit-message: "feat: 🐬 MySQL acesso para ${{ github.event.inputs.email }}"
-          delete-branch: false
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Mostrar resultado
+      - name: Install Dependencies
         run: |
-          echo "🎉 Pull Request criado com sucesso!"
-          echo "🔗 URL: ${{ steps.create_pr.outputs.pull-request-url }}"
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install YQ
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Detect File Changes
+        id: changes
+        run: |
+          echo "🔍 Detectando mudanças nos arquivos YAML..."
+          
+          echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "DELETED_FILES<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Log das mudanças detectadas
+          modified_count=$(echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | grep -c . || echo "0")
+          deleted_count=$(echo "${{ steps.changes.outputs.DELETED_FILES }}" | grep -c . || echo "0")
+          echo "📊 Arquivos modificados: $modified_count"
+          echo "📊 Arquivos deletados: $deleted_count"
+
+      - name: Save Previous File States
+        if: steps.changes.outputs.MODIFIED_FILES != ''
+        run: |
+          echo "💾 Salvando estado anterior dos arquivos modificados..."
+          mkdir -p /tmp/before_states
+          
+          echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
+            if [ -n "$file" ]; then
+              echo "Processando: $file"
+              
+              if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
+                git show ${{ github.event.before }}:$file > "/tmp/before_states/$(basename "$file")"
+                echo "✅ Estado anterior salvo para: $(basename "$file")"
+              else
+                echo "ℹ️ Arquivo $file é novo (não existia no commit anterior)"
+                # Criar arquivo vazio para indicar que é novo
+                echo '{}' > "/tmp/before_states/$(basename "$file")"
+              fi
+            fi
+          done
+
+      - name: Process Permissions
+        if: steps.changes.outputs.MODIFIED_FILES != ''
+        run: |
+          echo "🔧 Processando permissões dos arquivos modificados..."
+          success_count=0
+          error_count=0
+          
+          echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
+            if [ -n "$file" ]; then
+              echo ""
+              echo "📁 Processando arquivo: $file"
+              
+              # Validar arquivo YAML
+              if ! python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+                echo "❌ Arquivo YAML inválido: $file"
+                error_count=$((error_count + 1))
+                continue
+              fi
+              
+              # Extrair informações do arquivo
+              db=$(yq -r '.database' "$file" 2>/dev/null)
+              engine=$(yq -r '.engine' "$file" 2>/dev/null)
+              user_email=$(yq -r '.user' "$file" 2>/dev/null)
+
+              if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
+                echo "❌ Campos obrigatórios ausentes no arquivo: $file"
+                error_count=$((error_count + 1))
+                continue
+              fi
+
+              echo "🔍 Buscando credenciais para ${db}-${engine}..."
+              
+              # Buscar credenciais no Parameter Store
+              config=$(aws ssm get-parameter \
+                --name "rds-access-control" \
+                --with-decryption \
+                --query Parameter.Value \
+                --output text 2>/dev/null)
+              
+              if [ $? -ne 0 ] || [ -z "$config" ]; then
+                echo "❌ Erro ao acessar Parameter Store"
+                error_count=$((error_count + 1))
+                continue
+              fi
+              
+              # Extrair credenciais e mascarar IMEDIATAMENTE
+              user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
+              pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
+              
+              # MASCARAMENTO IMEDIATO - antes de qualquer validação
+              echo "::add-mask::$user"
+              echo "::add-mask::$pass"
+
+              if [ -z "$user" ] || [ -z "$pass" ]; then
+                echo "❌ Credenciais não encontradas para ${db}-${engine}"
+                error_count=$((error_count + 1))
+                continue
+              fi
+
+              # Usar variáveis locais em vez de export
+              db_user="$user"
+              db_pass="$pass"
+              db_host=$(yq -r '.host' "$file")
+
+              # Verificar se existe estado anterior e processar diff
+              before_file="/tmp/before_states/$(basename "$file")"
+              if [ -f "$before_file" ] && [ -s "$before_file" ] && [ "$(cat "$before_file")" != "{}" ]; then
+                echo "🔄 Executando revogação baseada no diff..."
+                # Executar revogação com variáveis de ambiente seguras
+                env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_permissions.py "$before_file" "$file"
+                if [ $? -eq 0 ]; then
+                  echo "✅ Revogação de permissões concluída"
+                else
+                  echo "⚠️ Erro na revogação, mas continuando com aplicação"
+                fi
+              else
+                echo "ℹ️ Arquivo novo ou sem estado anterior - aplicando permissões diretamente"
+              fi
+
+              # Aplicar novas permissões
+              echo "➕ Aplicando permissões para usuário: $user_email"
+              # Executar aplicação com variáveis de ambiente seguras
+              env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/apply_permissions.py "$file"
+              if [ $? -eq 0 ]; then
+                echo "✅ Permissões aplicadas com sucesso para: $user_email"
+                success_count=$((success_count + 1))
+              else
+                echo "❌ Erro ao aplicar permissões para: $user_email"
+                error_count=$((error_count + 1))
+              fi
+            fi
+          done
+          
           echo ""
-          echo "📋 Resumo MySQL:"
-          echo "  👤 Usuário: ${{ github.event.inputs.email }}"
-          echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
-          echo "  🗄️ Banco: ${{ github.event.inputs.database }}"
-          echo "  📁 Schema: ${{ github.event.inputs.schema }}"
-          echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
+          echo "📊 RESUMO DO PROCESSAMENTO:"
+          echo "✅ Sucessos: $success_count"
+          echo "❌ Erros: $error_count"
+
+      - name: Process Deleted Files
+        if: steps.changes.outputs.DELETED_FILES != ''
+        run: |
+          echo "🗑️ Processando arquivos deletados (revogação completa)..."
+          revoked_count=0
+          error_count=0
+          
+          echo "${{ steps.changes.outputs.DELETED_FILES }}" | while read file; do
+            if [ -n "$file" ]; then
+              echo ""
+              echo "🗑️ Processando arquivo deletado: $file"
+              
+              # Obter estado anterior do arquivo
+              if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
+                git show ${{ github.event.before }}:$file > "/tmp/deleted_file.yml"
+                
+                # Extrair informações do arquivo deletado
+                db=$(yq -r '.database' "/tmp/deleted_file.yml" 2>/dev/null)
+                engine=$(yq -r '.engine' "/tmp/deleted_file.yml" 2>/dev/null)
+                user_email=$(yq -r '.user' "/tmp/deleted_file.yml" 2>/dev/null)
+
+                if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
+                  echo "❌ Campos obrigatórios ausentes no arquivo deletado: $file"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+
+                echo "🔍 Buscando credenciais para revogação: ${db}-${engine}..."
+                
+                # Buscar credenciais no Parameter Store
+                config=$(aws ssm get-parameter \
+                  --name "rds-access-control" \
+                  --with-decryption \
+                  --query Parameter.Value \
+                  --output text 2>/dev/null)
+                
+                if [ $? -ne 0 ] || [ -z "$config" ]; then
+                  echo "❌ Erro ao acessar Parameter Store para revogação"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+                
+                # Extrair credenciais e mascarar IMEDIATAMENTE
+                user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
+                pass=$(echo "$config" | grep "^${db}-${engine}-password=" | cut -d'=' -f2-)
+                
+                # MASCARAMENTO IMEDIATO
+                echo "::add-mask::$user"
+                echo "::add-mask::$pass"
+
+                if [ -z "$user" ] || [ -z "$pass" ]; then
+                  echo "❌ Credenciais não encontradas para revogação: ${db}-${engine}"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+
+                # Usar variáveis locais
+                db_user="$user"
+                db_pass="$pass"
+                db_host=$(yq -r '.host' "/tmp/deleted_file.yml")
+
+                # Executar revogação completa
+                echo "🗑️ Revogando todas as permissões para usuário: $user_email"
+                env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_all_permissions.py "/tmp/deleted_file.yml"
+                if [ $? -eq 0 ]; then
+                  echo "✅ Permissões revogadas com sucesso para: $user_email"
+                  revoked_count=$((revoked_count + 1))
+                else
+                  echo "❌ Erro ao revogar permissões para: $user_email"
+                  error_count=$((error_count + 1))
+                fi
+                
+                rm -f "/tmp/deleted_file.yml"
+              else
+                echo "⚠️ Não foi possível obter estado anterior do arquivo: $file"
+                error_count=$((error_count + 1))
+              fi
+            fi
+          done
+          
           echo ""
-          echo "⏳ Aguardando aprovação e merge..." 
+          echo "📊 RESUMO DA REVOGAÇÃO:"
+          echo "✅ Revogações: $revoked_count"
+          echo "❌ Erros: $error_count"
+
+      - name: Show Final Summary
+        run: |
+          echo ""
+          echo "🎉 PROCESSAMENTO CONCLUÍDO!"
+          echo "=========================="
+          echo ""
+          echo "📊 Resumo Final:"
+          
+          modified_count=$(echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | grep -c . || echo "0")
+          deleted_count=$(echo "${{ steps.changes.outputs.DELETED_FILES }}" | grep -c . || echo "0")
+          
+          echo "  📝 Arquivos modificados processados: $modified_count"
+          echo "  🗑️ Arquivos deletados processados: $deleted_count"
+          echo ""
+          
+          if [ "$modified_count" -eq 0 ] && [ "$deleted_count" -eq 0 ]; then
+            echo "ℹ️ Nenhuma mudança em arquivos de permissão detectada"
+          else
+            echo "✅ Todas as mudanças foram processadas com sucesso"
+          fi
+          echo ""
+          echo "🔗 Verifique os logs acima para detalhes específicos de cada operação"
+
