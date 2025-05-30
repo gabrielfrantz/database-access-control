@@ -22,7 +22,7 @@ if sys.platform == "win32":
 class AuditReportGenerator:
     def __init__(self, base_path="users-access-requests"):
         self.base_path = base_path
-        self.environments = ["dev", "stg", "prod"]
+        self.environments = ["development", "staging", "production"]
         
     def load_user_permissions(self, environment):
         """Carrega todas as permissões de usuários de um ambiente."""
