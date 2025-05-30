@@ -1,4 +1,4 @@
-name: 🛡️ Validação de Segurança Reutilizável
+name: Validação de Segurança Reutilizável
 
 on:
   workflow_call:
