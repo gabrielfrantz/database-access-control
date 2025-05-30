@@ -1,4 +1,4 @@
-name: PostgreSQL/Aurora Access Request
+name: PostgreSQL-Aurora Access Request
 
 on:
   workflow_dispatch:
