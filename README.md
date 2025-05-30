@@ -147,7 +147,7 @@ Crie uma role IAM: `GitHubActions_RDSAccessRole`
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:<owner>/<repo>:*"
+          "token.actions.githubusercontent.com:sub": "repo:<owner>/<repo>:<environment>:*"
         }
       }
     }
