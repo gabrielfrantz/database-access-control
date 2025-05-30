@@ -16,6 +16,8 @@ Sistema GitOps para gerenciamento automatizado de permissões de acesso a bancos
 - [⚙️ Configuração AWS](#️-configuração-aws)
 - [🔐 Configuração GitHub](#-configuração-github)
 - [🚀 Como Usar](#-como-usar)
+- [⚙️ Workflows Disponíveis](#️-workflows-disponíveis)
+- [🔄 Detecção Automática de Ambiente](#-detecção-automática-de-ambiente)
 - [📊 Relatórios de Auditoria](#-relatórios-de-auditoria)
 - [🔒 Hierarquia de Permissões](#-hierarquia-de-permissões)
 - [🧪 Testes e Validação](#-testes-e-validação)
@@ -31,7 +33,7 @@ Este sistema implementa um **controle de acesso GitOps** para bancos de dados RD
 - 🛡️ **Validação de segurança** obrigatória
 - 📊 **Relatórios de auditoria** automáticos
 - 🎯 **Permissões granulares** por schema e tabela
-- 🌍 **Separação por ambientes** (dev/stg/prod)
+- 🌍 **Separação por ambientes** (development/staging/production)
 - ✅ **Aprovação via Pull Request** obrigatória
 
 ## ✨ Funcionalidades
@@ -55,14 +57,36 @@ Este sistema implementa um **controle de acesso GitOps** para bancos de dados RD
 - ✅ **Aprovação manual** para produção
 - ✅ **Auditoria completa** via Git
 
+## 🏗️ Arquitetura
+
+```mermaid
+graph TB
+    A[Desenvolvedor] --> B[Criar YAML]
+    B --> C[Pull Request]
+    C --> D[GitHub Actions]
+    D --> E[Validação Segurança]
+    E --> F{Aprovação?}
+    F -->|Sim| G[Merge PR]
+    F -->|Não| H[Rejeitar]
+    G --> I[Workflow Engine]
+    I --> J[OIDC Token]
+    J --> K[Assume Role IAM]
+    K --> L[Parameter Store]
+    L --> M[Token SSO]
+    M --> N[RDS Connection]
+    N --> O[Aplicar Permissões]
+    O --> P[Gerar Relatórios]
+    P --> Q[GitHub Artifacts]
+```
+
 ### 🔄 Fluxo de Trabalho
 
 1. **Criação**: Desenvolvedor solicita criação de usuário no banco de dados com determinadas permissões
 2. **Pull Request**: Submete PR para revisão
 3. **Validação**: GitHub Actions executa validação automática
-4. **Aguardar aprovação** (manual para todos os ambientes: dev/stg/prod)
+4. **Aguardar aprovação** (manual para todos os ambientes: development/staging/production)
 5. **Merge**: Aprovação e merge do PR
-6. **Execução**: Workflow específico do engine é executado
+6. **Aplicação Automática**: `apply_access.yml` executa automaticamente após merge
 7. **OIDC**: Token OIDC é gerado pelo GitHub Actions
 8. **Assume Role**: Role IAM é assumida via OIDC
 9. **Parameter Store**: Credenciais do owner são recuperadas
@@ -168,17 +192,18 @@ Crie uma role IAM: `GitHubActions_RDSAccessRole`
 Crie parâmetros no AWS Systems Manager > Parameter Store > rds-access-control:
 
 ```bash
+# Padrão: {database}-{engine}-{tipo}
 # Para MySQL
-database_dev-mysql-user=user
-database_dev-mysql-password=password
+ecommerce-mysql-user=admin_user
+ecommerce-mysql-password=secure_password
 
 # Para PostgreSQL
-database_prod-postgres-user=user
-database_prod-postgres-password=password
+analytics-postgres-user=pg_admin
+analytics-postgres-password=pg_secure
 
 # Para Aurora
-database_stg-aurora-user=user
-database_stg-aurora-password=password
+financial-aurora-user=aurora_admin
+financial-aurora-password=aurora_secure
 ```
 
 ## 🔐 Configuração GitHub
@@ -201,17 +226,17 @@ AWS_REGION=us-east-1
 
 Crie os seguintes environments com proteção:
 
-#### Environment: `dev`
+#### Environment: `development`
 - ✅ **Aprovação**: Manual
 - ✅ **Revisores**: 1 pessoa obrigatória
 - ✅ **Timeout**: 15 minutos
 
-#### Environment: `stg`
+#### Environment: `staging`
 - ✅ **Aprovação**: Manual
 - ✅ **Revisores**: 1 pessoa obrigatória
 - ✅ **Timeout**: 30 minutos
 
-#### Environment: `prod`
+#### Environment: `production`
 - ✅ **Aprovação**: Manual
 - ✅ **Revisores**: 2 pessoas obrigatórias
 - ✅ **Timeout**: 60 minutos
@@ -219,59 +244,49 @@ Crie os seguintes environments com proteção:
 
 ## 🚀 Como Usar
 
-### 1. 📝 Criar Solicitação de Acesso
+### 1. 📝 Criar Solicitação via Workflow
 
-Crie um arquivo YAML na estrutura hierárquica através do workflow desejado:
+O sistema oferece workflows interativos para criar solicitações de acesso:
 
-```yaml
-# users-access-requests/dev/mysql/database_dev/usuario@empresa.com.yml
-host: dev-mysql.rds.amazonaws.com
-user: usuario@empresa.com
-database: database_dev
-engine: mysql
-region: us-east-1
-port: 3306
-schemas:
-- nome: produtos
-  permissions:
-    - SELECT
-    - INSERT
-    - UPDATE
-  tables:
-  - nome: produtos_precos
-    permissions:
-      - SELECT  # Apenas leitura para dados sensíveis
-- nome: usuarios
-  permissions:
-    - SELECT
-```
+#### 🐬 MySQL Access Control
+1. **Acesse**: GitHub Actions > "MySQL Access Control"
+2. **Configure**:
+   - **Ambiente**: development/staging/production
+   - **Email**: usuario@empresa.com
+   - **Database**: nome_do_banco
+   - **Host**: host.rds.amazonaws.com
+   - **Schema**: nome_do_schema
+   - **Permissões**: SELECT, INSERT, UPDATE, etc.
+3. **Execute**: Run workflow
+4. **Resultado**: Pull Request criado automaticamente
 
-### 2. 🔄 Submeter Pull Request
+#### 🐘 PostgreSQL/Aurora Access Control
+1. **Acesse**: GitHub Actions > "PostgreSQL Aurora Access Control"  
+2. **Configure**:
+   - **Ambiente**: development/staging/production
+   - **Engine**: postgres ou aurora
+   - **Email**: usuario@empresa.com
+   - **Database**: nome_do_banco
+   - **Host**: host.rds.amazonaws.com
+   - **Schema**: nome_do_schema
+   - **Permissões**: SELECT, INSERT, UPDATE, etc.
+3. **Execute**: Run workflow
+4. **Resultado**: Pull Request criado automaticamente
 
-1. **Commit** o arquivo YAML
-2. **Push** para uma branch
-3. **Criar Pull Request** para `main`
-4. **Aguardar aprovação** (manual para todos os ambientes: dev/stg/prod)
+### 2. 🔄 Aprovação e Merge
 
-### 3. ⚙️ Executar Workflow após Merge
+1. **Revisar**: Pull Request criado automaticamente
+2. **Validar**: Arquivo YAML gerado com permissões corretas
+3. **Aprovar**: Reviewer aprova o PR
+4. **Merge**: Fazer merge para branch `main`
 
-Após o merge do PR, execute o workflow específico:
+### 3. 🤖 Aplicação Automática
 
-#### MySQL Access
-```bash
-# GitHub Actions > MySQL Access Control
-# Inputs:
-# - Environment: dev/stg/prod
-# - User Email: usuario@empresa.com
-```
-
-#### PostgreSQL/Aurora Access
-```bash
-# GitHub Actions > PostgreSQL Aurora Access Control
-# Inputs:
-# - Environment: dev/stg/prod
-# - User Email: usuario@empresa.com
-```
+1. **Detecção**: `apply_access.yml` detecta ambiente automaticamente pelo path
+2. **Validação**: Executa validação de segurança obrigatória  
+3. **Aprovação**: Aguarda aprovação manual do environment detectado
+4. **Aplicação**: Aplica permissões no banco de dados correto
+5. **Logs**: Gera logs detalhados da operação no GitHub Actions
 
 ### 4. 📊 Gerar Relatórios
 
@@ -281,6 +296,58 @@ Após o merge do PR, execute o workflow específico:
 # - User Email: usuario@empresa.com
 # - Format: html/json
 ```
+
+> **💡 Importante**: O processo é **totalmente automatizado** após o merge. Não é necessário executar workflows adicionais manualmente!
+
+## 🔄 Detecção Automática de Ambiente
+
+### 🎯 Workflow `apply_access.yml`
+
+O sistema possui um **workflow principal** (`apply_access.yml`) que é executado **automaticamente** após o merge de qualquer Pull Request que modifique arquivos na pasta `users-access-requests/`.
+
+### 🔍 Como Funciona a Detecção
+
+1. **Trigger Automático**: O workflow é disparado automaticamente quando:
+   - Há push para a branch `main`
+   - Arquivos modificados estão no path `users-access-requests/**.yml`
+
+2. **Extração do Ambiente**: O job `extract-environment` analisa o caminho dos arquivos modificados:
+   ```bash
+   # Exemplo de detecção:
+   users-access-requests/development/mysql/ecommerce/user.yml → development
+   users-access-requests/staging/postgres/analytics/user.yml → staging  
+   users-access-requests/production/aurora/financial/user.yml → production
+   ```
+
+3. **Regex de Detecção**: Utiliza o padrão `users-access-requests/([^/]+)/` para extrair o ambiente
+   - **Sucesso**: Usa o ambiente detectado
+   - **Fallback**: Se não conseguir detectar, usa `development` como padrão
+
+4. **Aplicação Dinâmica**: O ambiente detectado é passado automaticamente para o job `apply-access`:
+   ```yaml
+   environment: ${{ needs.extract-environment.outputs.ambiente }}
+   ```
+
+### ✅ Vantagens da Detecção Automática
+
+- **🔄 Zero Configuração**: Não precisa especificar ambiente manualmente
+- **🎯 Precisão**: Detecta automaticamente baseado no path do arquivo
+- **🛡️ Segurança**: Cada ambiente tem suas próprias aprovações e proteções
+- **📊 Auditoria**: Todas as operações ficam registradas no GitHub Actions
+
+### 🔧 Fluxo Completo Automatizado
+
+1. **Desenvolvedor**: Cria arquivo YAML no path correto
+2. **Pull Request**: Submete para revisão
+3. **Aprovação**: Reviewer aprova o PR
+4. **Merge**: PR é mergeado na branch `main`
+5. **Detecção**: `apply_access.yml` detecta ambiente automaticamente
+6. **Validação**: Executa validação de segurança obrigatória
+7. **Aprovação**: Aguarda aprovação manual do environment detectado
+8. **Aplicação**: Aplica permissões no ambiente correto
+9. **Relatório**: Gera logs detalhados da operação
+
+> **💡 Dica**: Não é mais necessário executar workflows específicos por engine. O `apply_access.yml` gerencia tudo automaticamente!
 
 ## 📊 Relatórios de Auditoria
 
@@ -406,57 +473,120 @@ database-access-control/
 │   ├── 🐍 generate_audit_reports.py   # Gerar relatórios
 │   └── 🐍 security_validator.py       # Validação de segurança
 └── 📁 users-access-requests/          # Solicitações de acesso
-    ├── 📁 dev/                        # Ambiente desenvolvimento
-    ├── 📁 stg/                        # Ambiente staging
-    └── 📁 prod/                       # Ambiente produção
+    ├── 📁 development/                # Ambiente desenvolvimento
+    ├── 📁 staging/                    # Ambiente staging
+    └── 📁 production/                 # Ambiente produção
 ```
 
 ### 📂 Estrutura Hierárquica
 
 ```
 users-access-requests/
-└── {environment}/          # dev, stg, prod
+└── {environment}/          # development, staging, production
     └── {engine}/           # mysql, postgres, aurora
         └── {database}/     # nome_do_banco
             └── {user}.yml  # usuario@empresa.com.yml
 ```
 
+### 📄 Exemplo de Arquivo YAML
+
+```yaml
+# users-access-requests/development/mysql/ecommerce/usuario@empresa.com.yml
+host: ecommerce-dev.rds.amazonaws.com
+user: usuario@empresa.com
+database: ecommerce
+engine: mysql
+region: us-east-1
+port: 3306
+schemas:
+- nome: produtos
+  permissions:
+    - SELECT
+    - INSERT
+    - UPDATE
+  tables:
+  - nome: produtos_precos
+    permissions:
+      - SELECT  # Apenas leitura para dados sensíveis
+- nome: usuarios
+  permissions:
+    - SELECT
+```
+
+> **💡 Nota**: Este arquivo é **gerado automaticamente** pelos workflows de criação. Não é necessário criar manualmente.
+
 ### 🔄 Fluxo Completo
 
-1. **Criar arquivo YAML** com permissões necessárias via workflow
-2. **Commit e push** para branch feature
-3. **Criar Pull Request** para main
-4. **Aguardar aprovação** (manual para todos os ambientes: dev/stg/prod)
+1. **Executar workflow** de criação (MySQL/PostgreSQL) via GitHub Actions
+2. **Preencher formulário** com permissões necessárias
+3. **Pull Request** criado automaticamente com arquivo YAML
+4. **Aguardar aprovação** (manual para todos os ambientes: development/staging/production)
 5. **Merge** após aprovação
-6. **Executar workflow** específico do engine via GitHub Actions
+6. **Aplicação automática** via `apply_access.yml` (detecta ambiente pelo path)
 7. **OIDC authentication** e assume role automático
-8. **Aguardar aplicação** das permissões
-9. **Download do relatório** via artifacts
+8. **Aguardar aplicação** das permissões no banco
+9. **Download do relatório** via artifacts (opcional)
 10. **Validar acesso** no banco de dados
 
 ---
 
-## 🔐 Segurança e Compliance
-
-### 🛡️ Controles Implementados
-
-- ✅ **Autenticação OIDC** sem credenciais estáticas
-- ✅ **Autenticação SSO** obrigatória
-- ✅ **Tokens temporários** (15 minutos)
-- ✅ **Aprovação manual** para produção
-- ✅ **Validação automática** de segurança
-- ✅ **Auditoria completa** via Git
-- ✅ **Princípio do menor privilégio**
-- ✅ **Separação de ambientes**
-
-### 📋 Compliance
-
-Este sistema atende aos requisitos de:
-- **SOX** - Controles de acesso e auditoria
-- **GDPR** - Proteção de dados pessoais
-- **ISO 27001** - Gestão de segurança da informação
-- **PCI DSS** - Proteção de dados de cartão
-
----
-
 **🔐 Sistema desenvolvido seguindo as melhores práticas de DevSecOps e GitOps**
+
+## ⚙️ Workflows Disponíveis
+
+### 🐬 MySQL Access Control
+- **📝 Finalidade**: Criar/alterar permissões de acesso MySQL
+- **🔧 Uso**: Workflow interativo via GitHub Actions
+- **📋 Inputs Principais**:
+  - `ambiente`: development, staging, production
+  - `email`: Email do usuário (formato: user@empresa.com)
+  - `database`: Nome do banco de dados
+  - `host`: Endpoint do RDS MySQL
+  - `schema`: Nome do schema
+  - `permissões`: SELECT, INSERT, UPDATE, DELETE, etc.
+- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
+- **📁 Estrutura**: `users-access-requests/{ambiente}/mysql/{database}/{email}.yml`
+
+### 🐘 PostgreSQL Aurora Access Control  
+- **📝 Finalidade**: Criar/alterar permissões PostgreSQL/Aurora
+- **🔧 Uso**: Workflow interativo via GitHub Actions
+- **📋 Inputs Principais**:
+  - `ambiente`: development, staging, production
+  - `engine_type`: postgres ou aurora
+  - `email`: Email do usuário (formato: user@empresa.com)
+  - `database`: Nome do banco de dados
+  - `host`: Endpoint do RDS PostgreSQL/Aurora
+  - `schema`: Nome do schema
+  - `permissões`: SELECT, INSERT, UPDATE, DELETE, TRUNCATE, etc.
+- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
+- **📁 Estrutura**: `users-access-requests/{ambiente}/{engine}/{database}/{email}.yml`
+
+### 🤖 Apply DB Access (Automático)
+- **📝 Finalidade**: Aplicar permissões automaticamente após merge
+- **🔧 Uso**: Executado automaticamente pelo GitHub Actions
+- **🎯 Trigger**: Push para branch `main` com arquivos `users-access-requests/**.yml`
+- **🔍 Detecção**: Ambiente extraído automaticamente do path do arquivo
+- **🛡️ Validação**: Validação de segurança obrigatória antes da aplicação
+- **⚙️ Processo**: Conecta no RDS via OIDC e aplica permissões
+
+### 📊 Generate Audit Reports
+- **📝 Finalidade**: Gerar relatórios de auditoria por usuário
+- **🔧 Uso**: Workflow manual via GitHub Actions
+- **📋 Inputs**:
+  - `user_email`: Email do usuário para relatório
+  - `database_name`: Nome do banco específico (opcional)
+  - `output_format`: html ou json
+- **📤 Output**: Relatório disponível nos artifacts do workflow
+- **📅 Automação**: Relatórios semanais automáticos (agenda configurável)
+
+### 🛡️ Reusable Security Check
+- **📝 Finalidade**: Validação de segurança reutilizável
+- **🔧 Uso**: Chamado automaticamente por outros workflows
+- **🔍 Validações**: 
+  - Credenciais não expostas
+  - Arquivos YAML válidos
+  - Princípio do menor privilégio
+  - Estrutura de diretórios correta
+- **✅ Resultado**: Aprovação/bloqueio para prosseguir com operações
+
+> **🎯 Fluxo Recomendado**: Use os workflows de criação (MySQL/PostgreSQL) → Approve PR → Automático (Apply DB Access) → Opcional (Generate Reports)
