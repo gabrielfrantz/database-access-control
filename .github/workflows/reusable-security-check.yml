@@ -191,4 +191,4 @@ jobs:
             echo "status=BLOCKED" >> $GITHUB_OUTPUT
             echo "secure=false" >> $GITHUB_OUTPUT
             exit 1
-          fi 
+          fi

@@ -197,4 +197,4 @@ jobs:
         with:
           name: relatorios-semanais-${{ github.run_number }}
           path: weekly-reports/
-          retention-days: 90 
+          retention-days: 90
