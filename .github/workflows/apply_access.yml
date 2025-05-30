@@ -17,17 +17,36 @@ jobs:
       workflow_name: "Apply DB Access"
       operation_type: "apply"
 
+  # Extração do ambiente dos workflows
+  extract-environment:
+    name: 🔍 Detectar Ambiente
+    runs-on: ubuntu-24.04
+    outputs:
+      ambiente: ${{ steps.detect.outputs.ambiente }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: detect
+        run: |
+          files=$(git diff --name-only HEAD~1 HEAD | grep "users-access-requests/" | head -n 1)
+          if [[ $files =~ users-access-requests/([^/]+)/ ]]; then
+            echo "ambiente=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          else
+            echo "ambiente=development" >> $GITHUB_OUTPUT
+          fi
+  
   # Job principal - só executa se a validação de segurança passar
   apply-access:
     name: 🔧 Aplicar Permissões de Acesso
     runs-on: ubuntu-24.04
-    environment: development
+    environment: ${{ needs.extract-environment.outputs.ambiente }}
     timeout-minutes: 15
-    
-    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
-    needs: security-validation
-    if: needs.security-validation.outputs.is_secure == 'true'
 
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: [security-validation, extract-environment]
+    if: needs.security-validation.outputs.is_secure == 'true'
+    
     permissions:
       contents: read
       id-token: write
@@ -50,7 +69,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: "us-east-1"
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -72,7 +91,7 @@ jobs:
         id: changes
         run: |
           echo "🔍 Detectando mudanças nos arquivos YAML..."
-
+          
           # Detectar mudanças via git diff
           echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
           git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
@@ -314,4 +333,3 @@ jobs:
           fi
           echo ""
           echo "🔗 Verifique os logs acima para detalhes específicos de cada operação"
-
