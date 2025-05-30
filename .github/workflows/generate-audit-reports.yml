@@ -17,9 +17,6 @@ on:
         type: choice
         options: [html, json]
         default: html
-  schedule:
-    # Gerar relatórios automáticos toda segunda às 9h
-    - cron: '0 9 * * 1'
 
 permissions:
   contents: read
