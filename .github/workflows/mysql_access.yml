@@ -7,7 +7,7 @@ on:
         description: "Ambiente"
         required: true
         type: choice
-        options: [dev, stg, prod]
+        options: [development, staging, production]
       email:
         description: "Email do usuário (ex: nome@empresa.com)"
         required: true
