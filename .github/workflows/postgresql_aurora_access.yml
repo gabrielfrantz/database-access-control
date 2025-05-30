@@ -118,6 +118,7 @@ permissions:
   contents: write
 
 jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
   security-validation:
     name: 🛡️ Validação de Segurança
     uses: ./.github/workflows/reusable-security-check.yml
@@ -125,12 +126,14 @@ jobs:
       workflow_name: "PostgreSQL Aurora Access Request"
       operation_type: "postgresql"
 
+  # Job principal - só executa se a validação de segurança passar
   process-postgresql-aurora-access:
     name: 🐘 Processar Acesso PostgreSQL Aurora
     runs-on: ubuntu-24.04
     environment: ${{ github.event.inputs.ambiente }}
     timeout-minutes: 10
     
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
     needs: security-validation
     if: needs.security-validation.outputs.is_secure == 'true'
 
@@ -157,16 +160,19 @@ jobs:
         run: |
           echo "🔍 Validando entrada para ${{ github.event.inputs.engine_type }}..."
           
+          # Validar email
           if ! echo "${{ github.event.inputs.email }}" | grep -E '^[^@]+@[^@]+\.[^@]+$'; then
             echo "❌ Email inválido"
             exit 1
           fi
           
+          # Validar porta
           if ! echo "${{ github.event.inputs.port }}" | grep -E '^[0-9]+$'; then
             echo "❌ Porta deve ser numérica"
             exit 1
           fi
           
+          # Verificar se pelo menos uma permissão foi selecionada (exceto para revogação)
           if [ "${{ github.event.inputs.revogar }}" != "true" ]; then
             selected_permissions=0
             [ "${{ github.event.inputs.perm_select }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
@@ -224,6 +230,7 @@ jobs:
         run: |
           echo "🔧 Construindo JSON de permissões..."
           
+          # Construir array de permissões
           permissions="["
           first=true
           
@@ -290,13 +297,15 @@ jobs:
           
           permissions="$permissions]"
           
+          # Verificar se é granular (tabelas específicas) ou schema completo
           if [ -n "${{ github.event.inputs.tabelas }}" ]; then
+            # Granular - construir array de tabelas
             echo "📊 Modo granular - tabelas específicas"
             tables_array="["
             IFS=',' read -ra TABLES <<< "${{ github.event.inputs.tabelas }}"
             first_table=true
             for table in "${TABLES[@]}"; do
-              table=$(echo "$table" | xargs)
+              table=$(echo "$table" | xargs) # Remover espaços em branco
               [ "$first_table" == "false" ] && tables_array="$tables_array,"
               tables_array="$tables_array{\"nome\":\"$table\",\"permissions\":$permissions}"
               first_table=false
@@ -305,6 +314,7 @@ jobs:
             
             json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tables_array}]"
           else
+            # Schema completo
             echo "📋 Modo schema completo"
             json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"permissions\":$permissions}]"
           fi
@@ -315,14 +325,17 @@ jobs:
       - name: Setup File Paths
         id: setup
         run: |
+          # Nova estrutura: ambiente/engine/database/usuario.yml
           user_email="${{ github.event.inputs.email }}"
           database="${{ github.event.inputs.database }}"
           environment="${{ github.event.inputs.ambiente }}"
           engine="${{ github.event.inputs.engine_type }}"
           
+          # Criar estrutura de diretórios
           directory="users-access-requests/${environment}/${engine}/${database}"
           file_path="${directory}/${user_email}.yml"
           
+          # Nome da branch
           username="$(echo ${user_email} | cut -d '@' -f1)"
           branch_name="${engine}-access-${username}-${database}-$(date +%s)"
           
@@ -365,6 +378,7 @@ jobs:
           echo "📁 Estrutura: ${{ steps.setup.outputs.directory }}"
           echo "📄 Arquivo: ${{ steps.setup.outputs.file_path }}"
           
+          # Verificar se diretório existe
           if [ ! -d "${{ steps.setup.outputs.directory }}" ]; then
             echo "🏗️ Criando nova estrutura de diretórios: ${{ steps.setup.outputs.directory }}"
             mkdir -p "${{ steps.setup.outputs.directory }}"
@@ -372,16 +386,20 @@ jobs:
             echo "📂 Diretório já existe: ${{ steps.setup.outputs.directory }}"
           fi
           
+          # Verificar se arquivo existe
           if [ -f "${{ steps.setup.outputs.file_path }}" ]; then
             echo "📝 Atualizando arquivo existente: ${{ steps.setup.outputs.file_path }}"
           else
             echo "🆕 Criando novo arquivo: ${{ steps.setup.outputs.file_path }}"
           fi
           
+          # Processar permissões usando script (que também cria diretórios se necessário)
           python3 scripts/merge_permissions.py "${{ steps.setup.outputs.file_path }}" '${{ steps.build_json.outputs.schemas_json }}'
           
+          # Adicionar ao Git
           git add "${{ steps.setup.outputs.file_path }}"
           
+          # Commit com mensagem apropriada
           if [ "${{ github.event.inputs.remover_permissoes }}" == "true" ]; then
             git commit -m "➖ ${{ steps.setup.outputs.engine }}: Remover permissões do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
           else
