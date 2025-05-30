@@ -1,4 +1,4 @@
-name: 📊 Gerar Relatórios de Auditoria
+name: Gerar Relatórios de Auditoria
 
 on:
   workflow_dispatch:
