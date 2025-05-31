@@ -1,0 +1,11 @@
+[
+  {
+    "schema": "public",
+    "permissions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  }
+] 
