@@ -154,7 +154,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
-          session-name: GitHubActions-${{ github.event.inputs.engine_type }}-${{ github.run_id }}
 
       - name: Validate Input
         run: |
