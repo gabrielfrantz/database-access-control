@@ -117,14 +117,18 @@ jobs:
         run: |
           echo "🔍 Validando JSON de permissões MySQL..."
           
+          # Salvar JSON em arquivo temporário para evitar problemas de parsing
+          echo '${{ github.event.inputs.permissoes }}' > /tmp/input_permissions.json
+          
           # Validar se é JSON válido
-          echo '${{ github.event.inputs.permissoes }}' | python3 -m json.tool > /dev/null
+          python3 -m json.tool /tmp/input_permissions.json > /dev/null
           
           # Validar permissões específicas do MySQL
           python3 -c "
           import json
-          permissions = json.loads('${{ github.event.inputs.permissoes }}')
-          mysql_perms = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'INDEX', 'ALTER', 'REFERENCES', 'EXECUTE', 'USAGE', 'ALL PRIVILEGES']
+          with open('/tmp/input_permissions.json', 'r') as f:
+              permissions = json.load(f)
+          mysql_perms = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'INDEX', 'REFERENCES', 'TRIGGER', 'EXECUTE', 'ALL PRIVILEGES']
           
           for schema in permissions:
               if 'permissions' in schema:
