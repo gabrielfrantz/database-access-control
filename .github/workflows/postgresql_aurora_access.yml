@@ -122,13 +122,17 @@ jobs:
         run: |
           echo "🔍 Validando JSON de permissões ${{ github.event.inputs.engine_type }}..."
           
+          # Salvar JSON em arquivo temporário para evitar problemas de parsing
+          echo '${{ github.event.inputs.permissoes }}' > /tmp/input_permissions.json
+          
           # Validar se é JSON válido
-          echo '${{ github.event.inputs.permissoes }}' | python3 -m json.tool > /dev/null
+          python3 -m json.tool /tmp/input_permissions.json > /dev/null
           
           # Validar permissões específicas do PostgreSQL/Aurora
           python3 -c "
           import json
-          permissions = json.loads('${{ github.event.inputs.permissoes }}')
+          with open('/tmp/input_permissions.json', 'r') as f:
+              permissions = json.load(f)
           pg_perms = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'USAGE', 'EXECUTE', 'CREATE', 'TEMP', 'ALL PRIVILEGES']
           
           for schema in permissions:
