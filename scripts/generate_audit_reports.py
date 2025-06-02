@@ -135,8 +135,8 @@ class AuditReportGenerator:
                     
                     # Contar tabelas
                     for schema in schemas:
-                        tables = schema.get('tables', [])
-                        total_tables += len(tables)
+                        tabelas = schema.get('tabelas', [])
+                        total_tables += len(tabelas)
         
         user_report['summary'] = {
             'total_databases': total_databases,
@@ -583,20 +583,20 @@ class AuditReportGenerator:
                             for schema in schemas:
                                 schema_name = schema.get('nome', 'N/A')
                                 permissions = schema.get('permissions', [])
-                                tables = schema.get('tables', [])
+                                tabelas = schema.get('tabelas', [])
                                 
                                 permissions_badges = ''.join([
                                     f'<span class="permission-badge">{perm}</span>' 
                                     for perm in permissions
                                 ])
                                 
-                                # Processar tabelas se existirem
+                                # Processar tabelas se existirem (granular)
                                 tables_html = ""
-                                if tables:
+                                if tabelas:
                                     tables_html = "<div style='margin-top: 10px; padding-left: 15px;'>"
-                                    for table in tables:
-                                        table_name = table.get('nome', 'N/A')
-                                        table_permissions = table.get('permissions', [])
+                                    for tabela in tabelas:
+                                        table_name = tabela.get('nome', 'N/A')
+                                        table_permissions = tabela.get('permissions', [])
                                         
                                         table_permissions_badges = ''.join([
                                             f'<span class="permission-badge" style="background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%); font-size: 0.7em;">{perm}</span>' 

@@ -1,2 +1,20 @@
-# Este arquivo mantém o diretório production/ rastreado pelo Git
-# Os arquivos de permissões serão criados aqui dinamicamente pelos workflows 
+# Ambiente: PRODUCTION
+#
+# Estrutura esperada para engines de banco:
+# production/
+# ├── mysql/
+# │   └── {database_name}/
+# │       └── {usuario@email.com}.yml
+# ├── postgres/
+# │   └── {database_name}/
+# │       └── {usuario@email.com}.yml
+# └── aurora/
+#     └── {database_name}/
+#         └── {usuario@email.com}.yml
+#
+# Exemplos de uso:
+# production/mysql/ecommerce_prod/joao.silva@empresa.com.yml
+# production/postgres/analytics_prod/maria.santos@empresa.com.yml
+#
+# ⚠️ ATENÇÃO: Este é o ambiente de PRODUÇÃO!
+# Todas as mudanças devem ser cuidadosamente revisadas. 

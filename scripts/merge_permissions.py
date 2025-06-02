@@ -78,7 +78,18 @@ def validate_permissions_json(json_string):
 
 def validate_environment_variables():
     """Valida se as variáveis de ambiente necessárias estão definidas."""
-    required_variables = ["INPUT_HOST", "INPUT_EMAIL", "INPUT_DATABASE", "INPUT_ENGINE", "INPUT_REGION", "INPUT_PORT"]
+    required_variables = [
+        "INPUT_AMBIENTE",
+        "INPUT_HOST", 
+        "INPUT_EMAIL", 
+        "INPUT_DATABASE", 
+        "INPUT_ENGINE", 
+        "INPUT_REGION", 
+        "INPUT_PORT",
+        "INPUT_PERMISSIONS_JSON",
+        "INPUT_REVOGAR",
+        "INPUT_REMOVER_PERMISSOES"
+    ]
     
     for var in required_variables:
         if not os.environ.get(var):
@@ -276,40 +287,67 @@ def save_file(file_path, data, remove_mode):
         logger.error(f"❌ Erro ao salvar arquivo: {e}")
         raise
 
-def main():
-    """Função principal do script."""
-    try:
-        logger.info("🚀 Iniciando processamento de permissões...")
+def process_permissions_from_json():
+    """Processa JSON de permissões e retorna lista de schemas."""
+    json_data = os.environ["INPUT_PERMISSIONS_JSON"]
+    permissions = json.loads(json_data)
+    
+    # Converter formato examples-permissions para formato interno
+    schemas = []
+    for item in permissions:
+        # Normalizar campo schema vs nome
+        schema_name = item.get("schema") or item.get("nome")
         
-        # Validar argumentos
+        schema = {
+            "nome": schema_name,
+            "permissions": item["permissions"]
+        }
+        if "tables" in item:
+            schema["tables"] = item["tables"] 
+        schemas.append(schema)
+    
+    return schemas
+
+def main():
+    """Função principal"""
+    try:
         validate_input_arguments()
         
-        # Obter parâmetros
         file_path = sys.argv[1]
-        permissions_json = sys.argv[2]
+        json_string = sys.argv[2]
         
-        logger.info(f"📁 Arquivo: {file_path}")
-        logger.info(f"📊 JSON: {permissions_json}")
+        # Verificar modo de operação
+        revogar = os.environ.get("INPUT_REVOGAR", "false").lower() == "true"
+        remover_mode = os.environ.get("INPUT_REMOVER_PERMISSOES", "false").lower() == "true"
         
-        # Validar JSON
-        new_permissions = validate_permissions_json(permissions_json)
+        logger.info(f"📄 Processando arquivo: {file_path}")
+        logger.info(f"🔧 Modo: {'Revogação' if revogar else 'Remoção' if remover_mode else 'Adição/Atualização'}")
         
-        # Verificar modo de remoção
-        remove_mode = os.environ.get("REMOVER_PERMISSOES", "false").lower() == "true"
+        if revogar:
+            # Modo revogação - deletar arquivo
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"🗑️ Arquivo removido: {file_path}")
+            else:
+                logger.warning(f"⚠️ Arquivo não encontrado para remoção: {file_path}")
+            return
+        
+        # Validar e processar JSON de permissões
+        new_permissions = validate_permissions_json(json_string)
         
         # Carregar dados existentes ou criar novos
         data = load_existing_data(file_path)
         
         # Processar permissões
-        process_permissions(data, new_permissions, remove_mode)
+        process_permissions(data, new_permissions, remover_mode)
         
-        # Salvar arquivo (com criação dinâmica de diretórios)
-        save_file(file_path, data, remove_mode)
+        # Salvar arquivo
+        save_file(file_path, data, remover_mode)
         
-        logger.info("🎉 Processamento concluído com sucesso!")
+        logger.info("✅ Processamento concluído com sucesso!")
         
     except Exception as e:
-        logger.error(f"❌ Erro no processamento: {e}")
+        logger.error(f"❌ Erro durante o processamento: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

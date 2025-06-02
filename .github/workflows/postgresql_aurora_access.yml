@@ -34,74 +34,10 @@ on:
         required: true
         default: "5432"
         type: string
-      schema:
-        description: "Nome do schema (apenas um)"
+      permissoes:
+        description: "Permissões em formato JSON (copie de examples-permissions/)"
         required: true
         type: string
-      tabelas:
-        description: "Nomes das tabelas (separadas por vírgula) - deixe vazio para aplicar no schema inteiro"
-        required: false
-        type: string
-      perm_select:
-        description: "SELECT - Consultar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_insert:
-        description: "INSERT - Inserir dados"
-        required: false
-        default: false
-        type: boolean
-      perm_update:
-        description: "UPDATE - Atualizar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_delete:
-        description: "DELETE - Deletar dados"
-        required: false
-        default: false
-        type: boolean
-      perm_truncate:
-        description: "TRUNCATE - Truncar tabelas"
-        required: false
-        default: false
-        type: boolean
-      perm_references:
-        description: "REFERENCES - Criar chaves estrangeiras"
-        required: false
-        default: false
-        type: boolean
-      perm_trigger:
-        description: "TRIGGER - Criar triggers"
-        required: false
-        default: false
-        type: boolean
-      perm_usage:
-        description: "USAGE - Usar schema"
-        required: false
-        default: false
-        type: boolean
-      perm_execute:
-        description: "EXECUTE - Executar funções"
-        required: false
-        default: false
-        type: boolean
-      perm_create:
-        description: "CREATE - Criar objetos"
-        required: false
-        default: false
-        type: boolean
-      perm_temp:
-        description: "TEMP - Criar tabelas temporárias"
-        required: false
-        default: false
-        type: boolean
-      perm_all:
-        description: "ALL PRIVILEGES - Todas as permissões"
-        required: false
-        default: false
-        type: boolean
       revogar:
         description: "Revogar permissões (deletar YAML)?"
         required: false
@@ -171,29 +107,40 @@ jobs:
             exit 1
           fi
           
-          # Verificar se pelo menos uma permissão foi selecionada (exceto para revogação)
+          # Verificar se JSON de permissões foi fornecido (exceto para revogação)
           if [ "${{ github.event.inputs.revogar }}" != "true" ]; then
-            selected_permissions=0
-            [ "${{ github.event.inputs.perm_select }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_insert }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_update }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_delete }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_truncate }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_references }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_trigger }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_usage }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_execute }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_create }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_temp }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            [ "${{ github.event.inputs.perm_all }}" == "true" ] && selected_permissions=$((selected_permissions + 1))
-            
-            if [ $selected_permissions -eq 0 ]; then
-              echo "❌ Pelo menos uma permissão deve ser selecionada"
+            if [ -z "${{ github.event.inputs.permissoes }}" ] || [ "${{ github.event.inputs.permissoes }}" == "[]" ]; then
+              echo "❌ JSON de permissões é obrigatório"
               exit 1
             fi
           fi
           
           echo "✅ Validação concluída"
+
+      - name: Validate Permissions JSON
+        if: github.event.inputs.revogar != 'true'
+        run: |
+          echo "🔍 Validando JSON de permissões ${{ github.event.inputs.engine_type }}..."
+          
+          # Validar se é JSON válido
+          echo '${{ github.event.inputs.permissoes }}' | python3 -m json.tool > /dev/null
+          
+          # Validar permissões específicas do PostgreSQL/Aurora
+          python3 -c "
+          import json
+          permissions = json.loads('${{ github.event.inputs.permissoes }}')
+          pg_perms = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'USAGE', 'EXECUTE', 'CREATE', 'TEMP', 'ALL PRIVILEGES']
+          
+          for schema in permissions:
+              if 'permissions' in schema:
+                  for perm in schema['permissions']:
+                      assert perm in pg_perms, f'Permissão inválida para PostgreSQL/Aurora: {perm}'
+              if 'tables' in schema:
+                  for table in schema['tables']:
+                      for perm in table.get('permissions', []):
+                          assert perm in pg_perms, f'Permissão inválida para PostgreSQL/Aurora: {perm}'
+          print('✅ JSON de permissões válido para PostgreSQL/Aurora')
+          "
 
       - name: Install Python Dependencies
         run: pip install pyyaml
@@ -224,102 +171,14 @@ jobs:
           echo "DB_USER=$user" >> $GITHUB_ENV
           echo "DB_PASS=$pass" >> $GITHUB_ENV
 
-      - name: Build Permissions JSON
-        id: build_json
+      - name: Validate and Use Provided JSON
+        if: github.event.inputs.revogar != 'true'
         run: |
-          echo "🔧 Construindo JSON de permissões..."
-          
-          # Construir array de permissões
-          permissions="["
-          first=true
-          
-          [ "${{ github.event.inputs.perm_select }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"SELECT\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_insert }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"INSERT\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_update }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"UPDATE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_delete }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"DELETE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_truncate }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"TRUNCATE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_references }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"REFERENCES\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_trigger }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"TRIGGER\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_usage }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"USAGE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_execute }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"EXECUTE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_create }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"CREATE\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_temp }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"TEMP\""
-            first=false
-          }
-          [ "${{ github.event.inputs.perm_all }}" == "true" ] && {
-            [ "$first" == "false" ] && permissions="$permissions,"
-            permissions="$permissions\"ALL PRIVILEGES\""
-            first=false
-          }
-          
-          permissions="$permissions]"
-          
-          # Verificar se é granular (tabelas específicas) ou schema completo
-          if [ -n "${{ github.event.inputs.tabelas }}" ]; then
-            # Granular - construir array de tabelas
-            echo "📊 Modo granular - tabelas específicas"
-            tables_array="["
-            IFS=',' read -ra TABLES <<< "${{ github.event.inputs.tabelas }}"
-            first_table=true
-            for table in "${TABLES[@]}"; do
-              table=$(echo "$table" | xargs) # Remover espaços em branco
-              [ "$first_table" == "false" ] && tables_array="$tables_array,"
-              tables_array="$tables_array{\"nome\":\"$table\",\"permissions\":$permissions}"
-              first_table=false
-            done
-            tables_array="$tables_array]"
-            
-            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"tipo\":\"granular\",\"tabelas\":$tables_array}]"
-          else
-            # Schema completo
-            echo "📋 Modo schema completo"
-            json="[{\"nome\":\"${{ github.event.inputs.schema }}\",\"permissions\":$permissions}]"
-          fi
-          
-          echo "JSON gerado: $json"
-          echo "schemas_json=$json" >> $GITHUB_OUTPUT
+          echo "📋 Usando JSON de permissões fornecido pelo usuário"
+          echo '${{ github.event.inputs.permissoes }}' > /tmp/permissions.json
+          echo "JSON_PERMISSIONS<<EOF" >> $GITHUB_ENV
+          cat /tmp/permissions.json >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Setup File Paths
         id: setup
@@ -365,13 +224,16 @@ jobs:
       - name: Generate or Update YAML
         if: ${{ github.event.inputs.revogar != 'true' }}
         env:
+          INPUT_AMBIENTE: ${{ github.event.inputs.ambiente }}
           INPUT_HOST: ${{ github.event.inputs.host }}
           INPUT_EMAIL: ${{ github.event.inputs.email }}
           INPUT_DATABASE: ${{ github.event.inputs.database }}
           INPUT_ENGINE: ${{ github.event.inputs.engine_type }}
           INPUT_REGION: ${{ github.event.inputs.region }}
           INPUT_PORT: ${{ github.event.inputs.port }}
-          REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
+          INPUT_PERMISSIONS_JSON: ${{ github.event.inputs.permissoes }}
+          INPUT_REVOGAR: ${{ github.event.inputs.revogar }}
+          INPUT_REMOVER_PERMISSOES: ${{ github.event.inputs.remover_permissoes }}
         run: |
           echo "🔧 Processando permissões ${{ github.event.inputs.engine_type }}..."
           echo "📁 Estrutura: ${{ steps.setup.outputs.directory }}"
@@ -392,8 +254,8 @@ jobs:
             echo "🆕 Criando novo arquivo: ${{ steps.setup.outputs.file_path }}"
           fi
           
-          # Processar permissões usando script (que também cria diretórios se necessário)
-          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.file_path }}" '${{ steps.build_json.outputs.schemas_json }}'
+          # Processar permissões usando script
+          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.file_path }}" '${{ github.event.inputs.permissoes }}'
           
           # Adicionar ao Git
           git add "${{ steps.setup.outputs.file_path }}"
@@ -427,30 +289,12 @@ jobs:
             - 🚪 **Porta:** `${{ github.event.inputs.port }}`
             - 🌐 **Região:** `${{ github.event.inputs.region }}`
             
-            **🎯 Permissões Solicitadas:**
-            - 📁 **Schema:** `${{ github.event.inputs.schema }}`
-            ${{ github.event.inputs.tabelas != '' && format('- 📊 **Tabelas:** `{0}` (granular)', github.event.inputs.tabelas) || '- 📋 **Escopo:** Schema completo' }}
-            
-            **🔑 Permissões:**
-            ${{ github.event.inputs.perm_select == 'true' && '- ✅ SELECT (consultar dados)' || '' }}
-            ${{ github.event.inputs.perm_insert == 'true' && '- ✅ INSERT (inserir dados)' || '' }}
-            ${{ github.event.inputs.perm_update == 'true' && '- ✅ UPDATE (atualizar dados)' || '' }}
-            ${{ github.event.inputs.perm_delete == 'true' && '- ✅ DELETE (deletar dados)' || '' }}
-            ${{ github.event.inputs.perm_truncate == 'true' && '- ✅ TRUNCATE (truncar tabelas)' || '' }}
-            ${{ github.event.inputs.perm_references == 'true' && '- ✅ REFERENCES (chaves estrangeiras)' || '' }}
-            ${{ github.event.inputs.perm_trigger == 'true' && '- ✅ TRIGGER (criar triggers)' || '' }}
-            ${{ github.event.inputs.perm_usage == 'true' && '- ✅ USAGE (usar schema)' || '' }}
-            ${{ github.event.inputs.perm_execute == 'true' && '- ✅ EXECUTE (executar funções)' || '' }}
-            ${{ github.event.inputs.perm_create == 'true' && '- ✅ CREATE (criar objetos)' || '' }}
-            ${{ github.event.inputs.perm_temp == 'true' && '- ✅ TEMP (tabelas temporárias)' || '' }}
-            ${{ github.event.inputs.perm_all == 'true' && '- ✅ ALL PRIVILEGES (todas as permissões)' || '' }}
-            
             **🎯 Tipo de Operação:**
             ${{ github.event.inputs.revogar == 'true' && '🗑️ **REVOGAÇÃO TOTAL**' || github.event.inputs.remover_permissoes == 'true' && '➖ **REMOÇÃO PARCIAL**' || '➕ **ADIÇÃO/ATUALIZAÇÃO**' }}
             
-            **🔍 JSON Gerado:**
+            **🔍 Permissões JSON:**
             ```json
-            ${{ steps.build_json.outputs.schemas_json }}
+            ${{ github.event.inputs.permissoes }}
             ```
             
             ---
@@ -468,7 +312,7 @@ jobs:
           echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
           echo "  ⚙️ Engine: ${{ github.event.inputs.engine_type }}"
           echo "  🗄️ Banco: ${{ github.event.inputs.database }}"
-          echo "  📁 Schema: ${{ github.event.inputs.schema }}"
-          echo "  📊 Tabelas: ${{ github.event.inputs.tabelas || 'Schema completo' }}"
+          echo "  🔌 Host: ${{ github.event.inputs.host }}"
+          echo "  🚪 Porta: ${{ github.event.inputs.port }}"
           echo ""
           echo "⏳ Aguardando aprovação e merge..."
