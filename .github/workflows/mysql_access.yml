@@ -1,4 +1,4 @@
-name: MySQL Access Request
+name: MySQL - Requerimento de acesso
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
     name: 🛡️ Validação de Segurança
     uses: ./.github/workflows/reusable-security-check.yml
     with:
-      workflow_name: "MySQL Access Request"
+      workflow_name: "MySQL - Requerimento de acesso"
       operation_type: "mysql"
 
   # Job principal - só executa se a validação de segurança passar
