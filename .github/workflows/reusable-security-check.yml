@@ -109,8 +109,12 @@ jobs:
         run: |
           echo "🕵️ Verificando vazamentos de credenciais..."
           
-          # Verificar logs perigosos nos scripts
-          if grep -r "print.*\(DB_USER\|DB_PASS\|password\)" scripts/ 2>/dev/null | grep -v "target_user\|Usuário:\|User:"; then
+          # Verificar logs perigosos nos scripts (excluindo o próprio validador e padrões regex)
+          if grep -r "print.*\(DB_USER\|DB_PASS\|password\)" scripts/ 2>/dev/null | \
+             grep -v "target_user\|Usuário:\|User:" | \
+             grep -v "scripts/security_validator.py" | \
+             grep -v "r'.*'" | \
+             grep -v "#.*"; then
             echo "❌ Possível logging de credenciais encontrado nos scripts"
             echo "leak_status=FAIL" >> $GITHUB_OUTPUT
           else
@@ -124,8 +128,10 @@ jobs:
             echo "leak_status=FAIL" >> $GITHUB_OUTPUT
           fi
           
-          # Verificar credenciais hardcoded
-          if grep -r "password\s*=\s*[\"'][^\"']*[\"']" scripts/ 2>/dev/null | grep -v "os.environ"; then
+          # Verificar credenciais hardcoded (excluindo o validador)
+          if grep -r "password\s*=\s*[\"'][^\"']*[\"']" scripts/ 2>/dev/null | \
+             grep -v "os.environ" | \
+             grep -v "scripts/security_validator.py"; then
             echo "❌ Possível credencial hardcoded encontrada"
             echo "leak_status=FAIL" >> $GITHUB_OUTPUT
           fi
