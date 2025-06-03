@@ -188,7 +188,6 @@ jobs:
           
           # DDL e outras permissões
           [ "${{ github.event.inputs.schema_create }}" == "true" ] && perms+=("\"CREATE\"")
-          [ "${{ github.event.inputs.schema_trigger }}" == "true" ] && perms+=("\"TRIGGER\"")
           [ "${{ github.event.inputs.schema_execute }}" == "true" ] && perms+=("\"EXECUTE\"")
           [ "${{ github.event.inputs.schema_connect }}" == "true" ] && perms+=("\"CONNECT\"")
           
@@ -479,7 +478,6 @@ jobs:
             ${{ github.event.inputs.schema_update == 'true' && '- ✅ UPDATE (Atualizar dados)' || '' }}
             ${{ github.event.inputs.schema_delete == 'true' && '- ✅ DELETE (Deletar dados)' || '' }}
             ${{ github.event.inputs.schema_create == 'true' && '- ✅ CREATE (Criar objetos)' || '' }}
-            ${{ github.event.inputs.schema_trigger == 'true' && '- ✅ TRIGGER (Gerenciar triggers)' || '' }}
             ${{ github.event.inputs.schema_execute == 'true' && '- ✅ EXECUTE (Executar funções)' || '' }}
             ${{ github.event.inputs.schema_connect == 'true' && '- ✅ CONNECT (Conectar ao banco)' || '' }}
             
