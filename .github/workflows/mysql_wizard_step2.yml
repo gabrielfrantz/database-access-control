@@ -56,11 +56,6 @@ on:
         required: false
         type: boolean
         default: false
-      schema_index:
-        description: "🔍 INDEX - Gerenciar índices do schema"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   id-token: write
