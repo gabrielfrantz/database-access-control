@@ -46,11 +46,6 @@ on:
         required: false
         type: boolean
         default: false
-      schema_trigger:
-        description: "⚡ TRIGGER - Gerenciar triggers no schema"
-        required: false
-        type: boolean
-        default: false
       schema_execute:
         description: "🔧 EXECUTE - Executar funções no schema"
         required: false
