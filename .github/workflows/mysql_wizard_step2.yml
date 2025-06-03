@@ -20,7 +20,7 @@ on:
         
       # Permissões DML (Data Manipulation Language)
       schema_select:
-        description: "📋 SELECT - Consultar dados no schema"
+        description: "📋 SELECT - Consultar dados no schema ⚠️ IMPORTANTE: Se NENHUMA permissão for marcada, o usuário receberá ALL PRIVILEGES automaticamente"
         required: false
         type: boolean
         default: false
