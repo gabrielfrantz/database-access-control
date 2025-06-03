@@ -135,6 +135,14 @@ jobs:
           success_count=0
           error_count=0
           
+          # Verificar configuração AWS
+          echo "🔍 Verificando configuração AWS..."
+          aws sts get-caller-identity || {
+            echo "❌ Erro: AWS CLI não configurado corretamente"
+            exit 1
+          }
+          echo "✅ AWS CLI configurado corretamente"
+          
           echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | while read file; do
             if [ -n "$file" ]; then
               echo ""
@@ -154,24 +162,50 @@ jobs:
 
               if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
                 echo "❌ Campos obrigatórios ausentes no arquivo: $file"
+                echo "   database: $db"
+                echo "   engine: $engine" 
+                echo "   user: $user_email"
                 error_count=$((error_count + 1))
                 continue
               fi
 
               echo "🔍 Buscando credenciais para ${db}-${engine}..."
+              echo "🌍 Região AWS: $(aws configure get region)"
+              
+              # Verificar se o Parameter Store existe
+              echo "🔍 Verificando se o parâmetro 'rds-access-control' existe..."
+              if ! aws ssm describe-parameters --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
+                echo "❌ Parâmetro 'rds-access-control' não encontrado no Parameter Store"
+                echo "💡 Certifique-se de que o parâmetro foi criado na região correta: $(aws configure get region)"
+                error_count=$((error_count + 1))
+                continue
+              fi
+              echo "✅ Parâmetro encontrado no Parameter Store"
               
               # Buscar credenciais no Parameter Store
+              echo "🔐 Obtendo credenciais do Parameter Store..."
               config=$(aws ssm get-parameter \
                 --name "rds-access-control" \
                 --with-decryption \
                 --query Parameter.Value \
-                --output text 2>/dev/null)
+                --output text 2>&1)
               
-              if [ $? -ne 0 ] || [ -z "$config" ]; then
-                echo "❌ Erro ao acessar Parameter Store"
+              aws_exit_code=$?
+              if [ $aws_exit_code -ne 0 ]; then
+                echo "❌ Erro ao acessar Parameter Store (exit code: $aws_exit_code)"
+                echo "Detalhes do erro:"
+                echo "$config"
                 error_count=$((error_count + 1))
                 continue
               fi
+              
+              if [ -z "$config" ]; then
+                echo "❌ Parameter Store retornou conteúdo vazio"
+                error_count=$((error_count + 1))
+                continue
+              fi
+              
+              echo "✅ Credenciais obtidas do Parameter Store"
               
               # Extrair credenciais e mascarar IMEDIATAMENTE
               user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
@@ -183,14 +217,23 @@ jobs:
 
               if [ -z "$user" ] || [ -z "$pass" ]; then
                 echo "❌ Credenciais não encontradas para ${db}-${engine}"
+                echo "🔍 Chaves procuradas:"
+                echo "   ${db}-${engine}-user="
+                echo "   ${db}-${engine}-password="
+                echo "🔍 Chaves disponíveis no Parameter Store:"
+                echo "$config" | grep "^${db}-${engine}" | sed 's/=.*$/=***/' || echo "   Nenhuma chave encontrada com prefixo ${db}-${engine}"
                 error_count=$((error_count + 1))
                 continue
               fi
+
+              echo "✅ Credenciais extraídas com sucesso"
 
               # Usar variáveis locais em vez de export
               db_user="$user"
               db_pass="$pass"
               db_host=$(yq -r '.host' "$file")
+
+              echo "🔗 Host do banco: $db_host"
 
               # Verificar se existe estado anterior e processar diff
               before_file="/tmp/before_states/$(basename "$file")"
@@ -198,10 +241,11 @@ jobs:
                 echo "🔄 Executando revogação baseada no diff..."
                 # Executar revogação com variáveis de ambiente seguras
                 env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_permissions.py "$before_file" "$file"
-                if [ $? -eq 0 ]; then
+                revoke_exit_code=$?
+                if [ $revoke_exit_code -eq 0 ]; then
                   echo "✅ Revogação de permissões concluída"
                 else
-                  echo "⚠️ Erro na revogação, mas continuando com aplicação"
+                  echo "⚠️ Erro na revogação (exit code: $revoke_exit_code), mas continuando com aplicação"
                 fi
               else
                 echo "ℹ️ Arquivo novo ou sem estado anterior - aplicando permissões diretamente"
@@ -211,11 +255,12 @@ jobs:
               echo "➕ Aplicando permissões para usuário: $user_email"
               # Executar aplicação com variáveis de ambiente seguras
               env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/apply_permissions.py "$file"
-              if [ $? -eq 0 ]; then
+              apply_exit_code=$?
+              if [ $apply_exit_code -eq 0 ]; then
                 echo "✅ Permissões aplicadas com sucesso para: $user_email"
                 success_count=$((success_count + 1))
               else
-                echo "❌ Erro ao aplicar permissões para: $user_email"
+                echo "❌ Erro ao aplicar permissões para: $user_email (exit code: $apply_exit_code)"
                 error_count=$((error_count + 1))
               fi
             fi
@@ -249,24 +294,49 @@ jobs:
 
                 if [ "$db" = "null" ] || [ "$engine" = "null" ] || [ "$user_email" = "null" ]; then
                   echo "❌ Campos obrigatórios ausentes no arquivo deletado: $file"
+                  echo "   database: $db"
+                  echo "   engine: $engine"
+                  echo "   user: $user_email"
                   error_count=$((error_count + 1))
                   continue
                 fi
 
                 echo "🔍 Buscando credenciais para revogação: ${db}-${engine}..."
                 
+                # Verificar se o Parameter Store existe
+                echo "🔍 Verificando se o parâmetro 'rds-access-control' existe..."
+                if ! aws ssm describe-parameters --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
+                  echo "❌ Parâmetro 'rds-access-control' não encontrado no Parameter Store"
+                  echo "💡 Certifique-se de que o parâmetro foi criado na região correta: $(aws configure get region)"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+                echo "✅ Parâmetro encontrado no Parameter Store"
+                
                 # Buscar credenciais no Parameter Store
+                echo "🔐 Obtendo credenciais do Parameter Store..."
                 config=$(aws ssm get-parameter \
                   --name "rds-access-control" \
                   --with-decryption \
                   --query Parameter.Value \
-                  --output text 2>/dev/null)
+                  --output text 2>&1)
                 
-                if [ $? -ne 0 ] || [ -z "$config" ]; then
-                  echo "❌ Erro ao acessar Parameter Store para revogação"
+                aws_exit_code=$?
+                if [ $aws_exit_code -ne 0 ]; then
+                  echo "❌ Erro ao acessar Parameter Store para revogação (exit code: $aws_exit_code)"
+                  echo "Detalhes do erro:"
+                  echo "$config"
                   error_count=$((error_count + 1))
                   continue
                 fi
+                
+                if [ -z "$config" ]; then
+                  echo "❌ Parameter Store retornou conteúdo vazio"
+                  error_count=$((error_count + 1))
+                  continue
+                fi
+                
+                echo "✅ Credenciais obtidas do Parameter Store"
                 
                 # Extrair credenciais e mascarar IMEDIATAMENTE
                 user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
@@ -278,23 +348,33 @@ jobs:
 
                 if [ -z "$user" ] || [ -z "$pass" ]; then
                   echo "❌ Credenciais não encontradas para revogação: ${db}-${engine}"
+                  echo "🔍 Chaves procuradas:"
+                  echo "   ${db}-${engine}-user="
+                  echo "   ${db}-${engine}-password="
+                  echo "🔍 Chaves disponíveis no Parameter Store:"
+                  echo "$config" | grep "^${db}-${engine}" | sed 's/=.*$/=***/' || echo "   Nenhuma chave encontrada com prefixo ${db}-${engine}"
                   error_count=$((error_count + 1))
                   continue
                 fi
+
+                echo "✅ Credenciais extraídas com sucesso"
 
                 # Usar variáveis locais
                 db_user="$user"
                 db_pass="$pass"
                 db_host=$(yq -r '.host' "/tmp/deleted_file.yml")
 
+                echo "🔗 Host do banco: $db_host"
+
                 # Executar revogação completa
                 echo "🗑️ Revogando todas as permissões para usuário: $user_email"
                 env DB_USER="$db_user" DB_PASS="$db_pass" DB_HOST="$db_host" python scripts/revoke_all_permissions.py "/tmp/deleted_file.yml"
-                if [ $? -eq 0 ]; then
+                revoke_exit_code=$?
+                if [ $revoke_exit_code -eq 0 ]; then
                   echo "✅ Permissões revogadas com sucesso para: $user_email"
                   revoked_count=$((revoked_count + 1))
                 else
-                  echo "❌ Erro ao revogar permissões para: $user_email"
+                  echo "❌ Erro ao revogar permissões para: $user_email (exit code: $revoke_exit_code)"
                   error_count=$((error_count + 1))
                 fi
                 
