@@ -1,0 +1,14 @@
+host: teste.cub2weyucu0q.us-east-1.rds.amazonaws.com
+user: gabrieldecarvalhofrantz@gmail.com
+database: teste
+engine: postgres
+region: us-east-1
+port: 5432
+schemas:
+- nome: public
+  tipo: granular
+  tabelas:
+  - nome: users
+    permissions:
+    - SELECT
+    - CONNECT
