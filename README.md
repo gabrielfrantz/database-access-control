@@ -11,7 +11,6 @@ Sistema GitOps para gerenciamento automatizado de permissões de acesso a bancos
 
 - [🎯 Visão Geral](#-visão-geral)
 - [✨ Funcionalidades](#-funcionalidades)
-- [🏗️ Arquitetura](#️-arquitetura)
 - [📋 Pré-requisitos](#-pré-requisitos)
 - [⚙️ Configuração AWS](#️-configuração-aws)
 - [🔐 Configuração GitHub](#-configuração-github)
@@ -56,28 +55,6 @@ Este sistema implementa um **controle de acesso GitOps** para bancos de dados RD
 - ✅ **Validação de segurança** em todas as operações
 - ✅ **Aprovação manual** para produção
 - ✅ **Auditoria completa** via Git
-
-## 🏗️ Arquitetura
-
-```mermaid
-graph TB
-    A[Desenvolvedor] --> B[Criar YAML]
-    B --> C[Pull Request]
-    C --> D[GitHub Actions]
-    D --> E[Validação Segurança]
-    E --> F{Aprovação?}
-    F -->|Sim| G[Merge PR]
-    F -->|Não| H[Rejeitar]
-    G --> I[Workflow Engine]
-    I --> J[OIDC Token]
-    J --> K[Assume Role IAM]
-    K --> L[Parameter Store]
-    L --> M[Token SSO]
-    M --> N[RDS Connection]
-    N --> O[Aplicar Permissões]
-    O --> P[Gerar Relatórios]
-    P --> Q[GitHub Artifacts]
-```
 
 ### 🔄 Fluxo de Trabalho
 
