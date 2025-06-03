@@ -1,0 +1,16 @@
+# Arquivo temporário do PostgreSQL/Aurora Wizard - Step 1
+# Gerado automaticamente pelo GitHub Actions
+
+dados_basicos:
+  ambiente: "development"
+  email: "gabrieldecarvalhofrantz@gmail.com"
+  host: "teste.cub2weyucu0q.us-east-1.rds.amazonaws.com"
+  database: "teste"
+  region: "us-east-1"
+  port: "5432"
+  engine: "postgres"
+  timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  workflow_run_id: "15425090861"
+  workflow_run_number: "3"
+
+permissoes: {}
