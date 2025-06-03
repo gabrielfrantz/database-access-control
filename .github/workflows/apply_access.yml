@@ -4,8 +4,18 @@ on:
   push:
     branches:
       - main
+      - master
     paths:
-      - 'users-access-requests/**.yml'
+      - 'users-access-requests/**/*.yml'
+      - 'users-access-requests/**/*.yaml'
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+      - master
+    paths:
+      - 'users-access-requests/**/*.yml'
+      - 'users-access-requests/**/*.yaml'
   workflow_dispatch:
 
 jobs:
@@ -45,7 +55,11 @@ jobs:
 
     # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
     needs: [security-validation, extract-environment]
-    if: needs.security-validation.outputs.is_secure == 'true'
+    if: |
+      needs.security-validation.outputs.is_secure == 'true' && 
+      (github.event_name == 'push' || 
+       (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+       github.event_name == 'workflow_dispatch')
     
     permissions:
       contents: read
@@ -58,6 +72,23 @@ jobs:
           echo "================================="
           echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
           echo "🔓 Prosseguindo com aplicação segura de permissões..."
+          echo ""
+
+      - name: Debug Workflow Trigger
+        run: |
+          echo "🔍 INFORMAÇÕES DO EVENTO"
+          echo "======================="
+          echo "📝 Evento: ${{ github.event_name }}"
+          echo "🌿 Branch: ${{ github.ref_name }}"
+          echo "📄 SHA atual: ${{ github.sha }}"
+          echo "📄 SHA anterior: ${{ github.event.before }}"
+          
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "🔀 PR merged: ${{ github.event.pull_request.merged }}"
+            echo "🎯 PR number: ${{ github.event.pull_request.number }}"
+            echo "👤 PR author: ${{ github.event.pull_request.user.login }}"
+          fi
+          
           echo ""
 
       - name: Checkout Repository
@@ -92,20 +123,50 @@ jobs:
         run: |
           echo "🔍 Detectando mudanças nos arquivos YAML..."
           
+          # Determinar SHA de referência baseado no tipo de evento
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Para PR merged, usar base do PR
+            before_sha="${{ github.event.pull_request.base.sha }}"
+            after_sha="${{ github.event.pull_request.merge_commit_sha }}"
+            echo "🔀 Detectando mudanças de PR merged: $before_sha..$after_sha"
+          else
+            # Para push direto
+            before_sha="${{ github.event.before }}"
+            after_sha="${{ github.sha }}"
+            echo "📤 Detectando mudanças de push: $before_sha..$after_sha"
+          fi
+          
           # Detectar mudanças via git diff
           echo "MODIFIED_FILES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          git diff --name-status "$before_sha" "$after_sha" | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.ya?ml$/ { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           echo "DELETED_FILES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-status ${{ github.event.before }} ${{ github.sha }} | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.yml$/ { print $2 }' >> $GITHUB_OUTPUT
+          git diff --name-status "$before_sha" "$after_sha" | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.ya?ml$/ { print $2 }' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
           # Log das mudanças detectadas
-          modified_count=$(echo "${{ steps.changes.outputs.MODIFIED_FILES }}" | grep -c . || echo "0")
-          deleted_count=$(echo "${{ steps.changes.outputs.DELETED_FILES }}" | grep -c . || echo "0")
+          modified_files=$(git diff --name-status "$before_sha" "$after_sha" | awk '/^[A|M]/ && $2 ~ /^users-access-requests\/.*\.ya?ml$/ { print $2 }')
+          deleted_files=$(git diff --name-status "$before_sha" "$after_sha" | awk '/^D/ && $2 ~ /^users-access-requests\/.*\.ya?ml$/ { print $2 }')
+          
+          modified_count=$(echo "$modified_files" | grep -c . || echo "0")
+          deleted_count=$(echo "$deleted_files" | grep -c . || echo "0")
+          
           echo "📊 Arquivos modificados: $modified_count"
+          if [ $modified_count -gt 0 ]; then
+            echo "📄 Arquivos modificados:"
+            echo "$modified_files" | sed 's/^/  - /'
+          fi
+          
           echo "📊 Arquivos deletados: $deleted_count"
+          if [ $deleted_count -gt 0 ]; then
+            echo "📄 Arquivos deletados:"
+            echo "$deleted_files" | sed 's/^/  - /'
+          fi
+          
+          # Definir variáveis para os steps seguintes
+          echo "before_sha=$before_sha" >> $GITHUB_OUTPUT
+          echo "after_sha=$after_sha" >> $GITHUB_OUTPUT
 
       - name: Save Previous File States
         if: steps.changes.outputs.MODIFIED_FILES != ''
@@ -117,8 +178,8 @@ jobs:
             if [ -n "$file" ]; then
               echo "Processando: $file"
               
-              if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
-                git show ${{ github.event.before }}:$file > "/tmp/before_states/$(basename "$file")"
+              if git ls-tree -r ${{ steps.changes.outputs.before_sha }} --name-only | grep -q "^$file$"; then
+                git show ${{ steps.changes.outputs.before_sha }}:$file > "/tmp/before_states/$(basename "$file")"
                 echo "✅ Estado anterior salvo para: $(basename "$file")"
               else
                 echo "ℹ️ Arquivo $file é novo (não existia no commit anterior)"
@@ -286,8 +347,8 @@ jobs:
               echo "🗑️ Processando arquivo deletado: $file"
               
               # Obter estado anterior do arquivo
-              if git ls-tree -r ${{ github.event.before }} --name-only | grep -q "^$file$"; then
-                git show ${{ github.event.before }}:$file > "/tmp/deleted_file.yml"
+              if git ls-tree -r ${{ steps.changes.outputs.before_sha }} --name-only | grep -q "^$file$"; then
+                git show ${{ steps.changes.outputs.before_sha }}:$file > "/tmp/deleted_file.yml"
                 
                 # Extrair informações do arquivo deletado
                 db=$(yq -r '.database' "/tmp/deleted_file.yml" 2>/dev/null)
