@@ -170,13 +170,13 @@ jobs:
               fi
 
               echo "🔍 Buscando credenciais para ${db}-${engine}..."
-              echo "🌍 Região AWS: $(aws configure get region)"
+              echo "🌍 Região AWS: ${{ secrets.AWS_REGION }}"
               
               # Verificar se o Parameter Store existe
               echo "🔍 Verificando se o parâmetro 'rds-access-control' existe..."
-              if ! aws ssm describe-parameters --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
+              if ! aws ssm describe-parameters --region ${{ secrets.AWS_REGION }} --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
                 echo "❌ Parâmetro 'rds-access-control' não encontrado no Parameter Store"
-                echo "💡 Certifique-se de que o parâmetro foi criado na região correta: $(aws configure get region)"
+                echo "💡 Certifique-se de que o parâmetro foi criado na região correta: ${{ secrets.AWS_REGION }}"
                 error_count=$((error_count + 1))
                 continue
               fi
@@ -188,7 +188,8 @@ jobs:
                 --name "rds-access-control" \
                 --with-decryption \
                 --query Parameter.Value \
-                --output text 2>&1)
+                --output text
+                --region ${{ secrets.AWS_REGION }} 2>&1)
               
               aws_exit_code=$?
               if [ $aws_exit_code -ne 0 ]; then
@@ -206,6 +207,8 @@ jobs:
               fi
               
               echo "✅ Credenciais obtidas do Parameter Store"
+              echo "🔍 Conteúdo do Parameter Store (mascarado):"
+              echo "$config" | sed 's/password=.*/password=***/'
               
               # Extrair credenciais e mascarar IMEDIATAMENTE
               user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
@@ -305,9 +308,9 @@ jobs:
                 
                 # Verificar se o Parameter Store existe
                 echo "🔍 Verificando se o parâmetro 'rds-access-control' existe..."
-                if ! aws ssm describe-parameters --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
+                if ! aws ssm describe-parameters --region ${{ secrets.AWS_REGION }} --filters "Key=Name,Values=rds-access-control" --query "Parameters[0].Name" --output text 2>/dev/null | grep -q "rds-access-control"; then
                   echo "❌ Parâmetro 'rds-access-control' não encontrado no Parameter Store"
-                  echo "💡 Certifique-se de que o parâmetro foi criado na região correta: $(aws configure get region)"
+                  echo "💡 Certifique-se de que o parâmetro foi criado na região correta: ${{ secrets.AWS_REGION }}"
                   error_count=$((error_count + 1))
                   continue
                 fi
@@ -319,7 +322,8 @@ jobs:
                   --name "rds-access-control" \
                   --with-decryption \
                   --query Parameter.Value \
-                  --output text 2>&1)
+                  --output text
+                  --region ${{ secrets.AWS_REGION }} 2>&1)
                 
                 aws_exit_code=$?
                 if [ $aws_exit_code -ne 0 ]; then
