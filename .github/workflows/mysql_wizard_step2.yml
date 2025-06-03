@@ -92,6 +92,8 @@ jobs:
 
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validar Session ID
         run: |
@@ -187,7 +189,6 @@ jobs:
           [ "${{ github.event.inputs.schema_create }}" == "true" ] && perms+=("\"CREATE\"")
           [ "${{ github.event.inputs.schema_drop }}" == "true" ] && perms+=("\"DROP\"")
           [ "${{ github.event.inputs.schema_alter }}" == "true" ] && perms+=("\"ALTER\"")
-          [ "${{ github.event.inputs.schema_index }}" == "true" ] && perms+=("\"INDEX\"")
           
           # Verificar se nenhuma permissão foi selecionada
           if [ ${#perms[@]} -eq 0 ]; then
@@ -231,6 +232,20 @@ jobs:
       - name: Instalar Dependências Python
         run: pip install pyyaml
 
+      - name: Salvar Estado Anterior
+        run: |
+          file_path="${{ steps.setup_paths.outputs.file_path }}"
+          
+          if [ -f "$file_path" ]; then
+            echo "📂 Arquivo já existe, salvando hash anterior..."
+            before_hash=$(sha256sum "$file_path" | cut -d' ' -f1)
+            echo "$before_hash" > /tmp/before_hash
+            echo "🔍 Hash anterior: $before_hash"
+          else
+            echo "🆕 Arquivo novo"
+            echo "new" > /tmp/before_hash
+          fi
+
       - name: Configurar Paths de Arquivos
         id: setup_paths
         run: |
@@ -271,13 +286,74 @@ jobs:
         run: |
           echo "🔧 Gerando arquivo final de permissões..."
           
+          file_path="${{ steps.setup_paths.outputs.file_path }}"
+          directory="${{ steps.setup_paths.outputs.directory }}"
+          
+          echo "📁 Diretório de destino: $directory"
+          echo "📄 Arquivo de destino: $file_path"
+          echo "🔍 JSON de permissões: ${{ steps.build_permissions.outputs.permissions_json }}"
+          
+          # Verificar se arquivo já existe
+          if [ -f "$file_path" ]; then
+            echo "📂 Arquivo já existe, fazendo merge de permissões..."
+            echo "📄 Conteúdo atual:"
+            cat "$file_path"
+            echo ""
+          else
+            echo "🆕 Arquivo novo será criado"
+          fi
+          
           # Criar diretório se não existir
-          mkdir -p "${{ steps.setup_paths.outputs.directory }}"
+          echo "🏗️ Criando estrutura de diretórios..."
+          mkdir -p "$directory"
           
-          # Usar o script merge_permissions.py para gerar o arquivo final
-          python3 scripts/merge_permissions.py "${{ steps.setup_paths.outputs.file_path }}" '${{ steps.build_permissions.outputs.permissions_json }}'
+          # Executar o script de merge
+          echo "🔄 Executando script de merge..."
+          python3 scripts/merge_permissions.py "$file_path" '${{ steps.build_permissions.outputs.permissions_json }}'
           
-          echo "✅ Arquivo final gerado: ${{ steps.setup_paths.outputs.file_path }}"
+          # Verificar resultado
+          if [ -f "$file_path" ]; then
+            echo "✅ Arquivo final gerado com sucesso: $file_path"
+            echo "📄 Conteúdo final:"
+            cat "$file_path"
+            echo ""
+            
+            # Calcular hash para verificar mudanças
+            file_hash=$(sha256sum "$file_path" | cut -d' ' -f1)
+            echo "🔍 Hash do arquivo: $file_hash"
+          else
+            echo "❌ Erro: Arquivo não foi gerado!"
+            exit 1
+          fi
+
+      - name: Verificar Mudanças Reais
+        id: check_changes
+        run: |
+          file_path="${{ steps.setup_paths.outputs.file_path }}"
+          before_hash=$(cat /tmp/before_hash)
+          after_hash=$(sha256sum "$file_path" | cut -d' ' -f1)
+          
+          echo "🔍 Hash anterior: $before_hash"
+          echo "🔍 Hash atual: $after_hash"
+          
+          if [ "$before_hash" = "$after_hash" ]; then
+            echo "⚠️ Nenhuma mudança real detectada no arquivo"
+            echo "💡 O arquivo já possui as mesmas permissões solicitadas"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            
+            # Mesmo assim, vamos prosseguir para garantir que as permissões sejam aplicadas
+            echo "🔄 Forçando atualização para garantir aplicação das permissões..."
+            
+            # Adicionar timestamp como comentário para forçar mudança
+            echo "# Atualizado em: $(date -u '+%Y-%m-%d %H:%M:%S UTC') - Wizard MySQL" >> "$file_path"
+            
+            new_hash=$(sha256sum "$file_path" | cut -d' ' -f1)
+            echo "🔍 Novo hash após forçar mudança: $new_hash"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Mudanças detectadas no arquivo"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Limpar Arquivo Temporário
         run: |
@@ -299,22 +375,70 @@ jobs:
 
       - name: Commit das Alterações
         run: |
+          echo "🔍 Verificando mudanças antes do commit..."
+          
+          # Verificar se houve mudanças no arquivo
+          file_path="${{ steps.setup_paths.outputs.file_path }}"
+          has_changes="${{ steps.check_changes.outputs.has_changes }}"
+          
+          echo "✅ Arquivo para commit: $file_path"
+          echo "🔄 Mudanças detectadas: $has_changes"
+          
+          if [ -f "$file_path" ]; then
+            echo "📄 Tamanho do arquivo: $(wc -c < "$file_path") bytes"
+            echo "📄 Últimas 10 linhas do arquivo:"
+            tail -10 "$file_path"
+            echo ""
+          else
+            echo "❌ Arquivo não encontrado: $file_path"
+            exit 1
+          fi
+          
+          # Verificar status do git
+          echo "🔍 Status do Git antes de adicionar arquivos:"
+          git status --porcelain
+          
           # Adicionar arquivo final
-          git add "${{ steps.setup_paths.outputs.file_path }}"
+          echo "➕ Adicionando arquivo ao Git: $file_path"
+          git add "$file_path"
+          
+          # Verificar status após adicionar
+          echo "🔍 Status do Git após adicionar arquivo:"
+          git status --porcelain
           
           # Remover arquivo temporário do git se existir
           temp_file="wizard-temp/${{ github.event.inputs.session_id }}.yml"
           if git ls-files --error-unmatch "$temp_file" > /dev/null 2>&1; then
+            echo "🗑️ Removendo arquivo temporário do Git: $temp_file"
             git rm "$temp_file" 2>/dev/null || true
           fi
           
           # Remover diretório vazio se aplicável
           if [ -d "wizard-temp" ] && [ ! "$(ls -A wizard-temp)" ]; then
+            echo "🗑️ Removendo diretório vazio: wizard-temp"
             git rm -rf wizard-temp 2>/dev/null || true
           fi
           
-          # Commit
-          git commit -m "🧙‍♂️ MySQL Wizard: Adicionar permissões para ${{ steps.ler_temp.outputs.email }} no banco ${{ steps.ler_temp.outputs.database }}"
+          # Verificar se há mudanças para commitar
+          if git diff --cached --quiet; then
+            echo "❌ ERRO: Nenhuma mudança foi detectada para commit após adicionar arquivo"
+            echo "🔍 Debugging adicional:"
+            echo "  📄 Arquivo existe: $([ -f "$file_path" ] && echo "Sim" || echo "Não")"
+            echo "  📄 Arquivo no Git: $(git ls-files --error-unmatch "$file_path" > /dev/null 2>&1 && echo "Sim" || echo "Não")"
+            echo "  🔍 Diferença do arquivo com HEAD:"
+            git diff HEAD "$file_path" || echo "Nenhuma diferença ou arquivo não rastreado"
+            echo "❌ Falha no commit - cancelando workflow"
+            exit 1
+          fi
+          
+          # Fazer commit
+          commit_message="🧙‍♂️ MySQL Wizard: $([ "$has_changes" = "true" ] && echo "Atualizar" || echo "Adicionar") permissões para ${{ steps.ler_temp.outputs.email }} no banco ${{ steps.ler_temp.outputs.database }}"
+          echo "✅ Fazendo commit: $commit_message"
+          git commit -m "$commit_message"
+          
+          echo "✅ Commit realizado com sucesso!"
+          echo "📄 Mudanças commitadas:"
+          git show --stat HEAD
 
       - name: Criar Pull Request
         id: create_pr
@@ -353,7 +477,6 @@ jobs:
             ${{ github.event.inputs.schema_create == 'true' && '- ✅ CREATE (Criar tabelas)' || '' }}
             ${{ github.event.inputs.schema_drop == 'true' && '- ✅ DROP (Remover tabelas)' || '' }}
             ${{ github.event.inputs.schema_alter == 'true' && '- ✅ ALTER (Modificar estrutura)' || '' }}
-            ${{ github.event.inputs.schema_index == 'true' && '- ✅ INDEX (Gerenciar índices)' || '' }}
             
             ---
             **⚠️ Importante:** Após o merge, as permissões serão aplicadas automaticamente no MySQL.
@@ -374,12 +497,21 @@ jobs:
           echo "  🎯 Escopo: ${{ steps.process_tables.outputs.apply_to_all_schema == 'true' && 'Schema completo' || 'Tabelas específicas' }}"
           echo "  🔌 Host: ${{ steps.ler_temp.outputs.host }}"
           echo "  📄 Arquivo criado: ${{ steps.setup_paths.outputs.file_path }}"
+          echo "  🌿 Branch: ${{ steps.setup_paths.outputs.branch_name }}"
           echo "  🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
+          echo "  📋 PR Number: ${{ steps.create_pr.outputs.pull-request-number }}"
           echo ""
           echo "🔄 Próximos passos:"
-          echo "1. Revisar o Pull Request criado"
-          echo "2. Aprovar e fazer merge"
-          echo "3. As permissões serão aplicadas automaticamente"
+          echo "1. 🔗 Acessar o PR: ${{ steps.create_pr.outputs.pull-request-url }}"
+          echo "2. 👀 Revisar as mudanças propostas"
+          echo "3. ✅ Aprovar e fazer merge do PR"
+          echo "4. 🚀 Aguardar execução automática do workflow 'apply_access'"
+          echo "5. ✅ Verificar se as permissões foram aplicadas no banco"
+          echo ""
+          echo "⚠️ IMPORTANTE:"
+          echo "   📌 O arquivo foi ${{ steps.check_changes.outputs.has_changes == 'true' && 'modificado' || 'criado' }} com sucesso"
+          echo "   📌 Após o merge do PR, o workflow 'Aplicar acesso aos banco de dados' será executado automaticamente"
+          echo "   📌 Você pode acompanhar a aplicação das permissões na aba Actions do repositório"
           echo ""
           echo "🧹 Limpeza realizada:"
           echo "  ✅ Arquivo temporário removido"
