@@ -1,0 +1,147 @@
+name: "MySQL - Wizard Passo 1: Configuração Básica"
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: "Ambiente"
+        required: true
+        type: choice
+        options: [development, staging, production]
+      email:
+        description: "Email do usuário (ex: nome@empresa.com)"
+        required: true
+        type: string
+      host:
+        description: "Endpoint do banco MySQL"
+        required: true
+        type: string
+      database:
+        description: "Nome do banco de dados"
+        required: true
+        type: string
+      region:
+        description: "Região AWS"
+        required: true
+        type: string
+      port:
+        description: "Porta do banco"
+        required: true
+        default: "3306"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "MySQL - Wizard Passo 1: Configuração Básica"
+      operation_type: "mysql"
+
+  # Job principal - só executa se a validação de segurança passar
+  gerar_arquivo_temporario:
+    name: "📝 Gerar Configuração Temporária"
+    runs-on: ubuntu-24.04
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
+    
+    steps:
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com operações MySQL Wizard seguras..."
+          echo ""
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validar Entrada
+        run: |
+          echo "🔍 Validando dados básicos..."
+          
+          if ! echo "${{ github.event.inputs.email }}" | grep -E '^[^@]+@[^@]+\.[^@]+$'; then
+            echo "❌ Email inválido"
+            exit 1
+          fi
+          
+          if ! echo "${{ github.event.inputs.port }}" | grep -E '^[0-9]+$'; then
+            echo "❌ Porta deve ser numérica"
+            exit 1
+          fi
+          
+          echo "✅ Dados básicos válidos"
+
+      - name: Gerar Arquivo Temporário
+        id: gerar_temp
+        run: |
+          session_id="mysql-wizard-$(date +%s)-${{ github.run_id }}"
+          temp_dir="wizard-temp"
+          temp_file="${temp_dir}/${session_id}.yml"
+          
+          echo "📁 Criando diretório temporário: $temp_dir"
+          mkdir -p "$temp_dir"
+          
+          echo "📄 Gerando arquivo temporário: $temp_file"
+          
+          cat > "$temp_file" << 'EOF'
+          # Arquivo temporário do MySQL Wizard - Step 1
+          # Gerado em: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          # Session ID: $session_id
+          
+          dados_basicos:
+            ambiente: "${{ github.event.inputs.ambiente }}"
+            email: "${{ github.event.inputs.email }}"
+            host: "${{ github.event.inputs.host }}"
+            database: "${{ github.event.inputs.database }}"
+            region: "${{ github.event.inputs.region }}"
+            port: "${{ github.event.inputs.port }}"
+            engine: "mysql"
+            timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            workflow_run_id: "${{ github.run_id }}"
+            workflow_run_number: "${{ github.run_number }}"
+          
+          # As permissões serão adicionadas no Step 2
+          permissoes: {}
+          EOF
+          
+          echo "session_id=$session_id" >> $GITHUB_OUTPUT
+          echo "temp_file=$temp_file" >> $GITHUB_OUTPUT
+          echo "temp_dir=$temp_dir" >> $GITHUB_OUTPUT
+
+      - name: Configurar Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit Arquivo Temporário
+        run: |
+          git add "${{ steps.gerar_temp.outputs.temp_file }}"
+          git commit -m "🧙‍♂️ MySQL Wizard Step 1: Configuração básica para ${{ github.event.inputs.email }}"
+          git push origin main
+
+      - name: Instruções para Próximo Passo
+        run: |
+          echo "✅ Step 1 concluído com sucesso!"
+          echo ""
+          echo "📋 Dados configurados:"
+          echo "  👤 Email: ${{ github.event.inputs.email }}"
+          echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
+          echo "  🗄️ Database: ${{ github.event.inputs.database }}"
+          echo "  🔌 Host: ${{ github.event.inputs.host }}"
+          echo "  🌐 Região: ${{ github.event.inputs.region }}"
+          echo "  🚪 Porta: ${{ github.event.inputs.port }}"
+          echo ""
+          echo "🔄 Para continuar:"
+          echo "1. Vá para GitHub Actions"
+          echo "2. Execute 'MySQL - Wizard Passo 2: Permissões'"
+          echo "3. Use o Session ID: ${{ steps.gerar_temp.outputs.session_id }}"
+          echo ""
+          echo "📁 Arquivo temporário criado: ${{ steps.gerar_temp.outputs.temp_file }}" 

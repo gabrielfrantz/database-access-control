@@ -1,0 +1,304 @@
+name: MySQL - Revogar/Remover permissões
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: "Ambiente"
+        required: true
+        type: choice
+        options: [development, staging, production]
+      email:
+        description: "Email do usuário (ex: nome@empresa.com)"
+        required: true
+        type: string
+      host:
+        description: "Endpoint do banco MySQL"
+        required: true
+        type: string
+      database:
+        description: "Nome do banco de dados"
+        required: true
+        type: string
+      region:
+        description: "Região AWS"
+        required: true
+        type: string
+      port:
+        description: "Porta do banco"
+        required: true
+        default: "3306"
+        type: string
+      tipo_operacao:
+        description: "Tipo de operação"
+        required: true
+        type: choice
+        options: ["revogar_total", "remover_permissoes"]
+      permissoes:
+        description: "Permissões em formato JSON (apenas para remoção parcial - copie de examples-permissions/)"
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "MySQL - Revogar/Remover permissões"
+      operation_type: "mysql"
+
+  # Job principal - só executa se a validação de segurança passar
+  process-mysql-revoke:
+    name: 🗑️ Processar Revogação MySQL
+    runs-on: ubuntu-24.04
+    environment: ${{ github.event.inputs.ambiente }}
+    timeout-minutes: 10
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
+
+    steps:
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com operações MySQL seguras..."
+          echo ""
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Validate Input
+        run: |
+          echo "🔍 Validando entrada para MySQL ${{ github.event.inputs.tipo_operacao }}..."
+          
+          # Validar email
+          if ! echo "${{ github.event.inputs.email }}" | grep -E '^[^@]+@[^@]+\.[^@]+$'; then
+            echo "❌ Email inválido"
+            exit 1
+          fi
+          
+          # Validar porta
+          if ! echo "${{ github.event.inputs.port }}" | grep -E '^[0-9]+$'; then
+            echo "❌ Porta deve ser numérica"
+            exit 1
+          fi
+          
+          # Verificar se JSON de permissões foi fornecido para remoção parcial
+          if [ "${{ github.event.inputs.tipo_operacao }}" == "remover_permissoes" ]; then
+            if [ -z "${{ github.event.inputs.permissoes }}" ] || [ "${{ github.event.inputs.permissoes }}" == "[]" ]; then
+              echo "❌ JSON de permissões é obrigatório para remoção parcial"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Validação concluída"
+
+      - name: Validate Permissions JSON
+        if: github.event.inputs.tipo_operacao == 'remover_permissoes'
+        run: |
+          echo "🔍 Validando JSON de permissões MySQL para remoção..."
+          
+          # Salvar JSON em arquivo temporário para evitar problemas de parsing
+          echo '${{ github.event.inputs.permissoes }}' > /tmp/input_permissions.json
+          
+          # Validar se é JSON válido
+          python3 -m json.tool /tmp/input_permissions.json > /dev/null
+          
+          # Validar permissões específicas do MySQL
+          python3 -c "
+          import json
+          with open('/tmp/input_permissions.json', 'r') as f:
+              permissions = json.load(f)
+          mysql_perms = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'INDEX', 'REFERENCES', 'TRIGGER', 'EXECUTE', 'ALL PRIVILEGES']
+          
+          for schema in permissions:
+              if 'permissions' in schema:
+                  for perm in schema['permissions']:
+                      assert perm in mysql_perms, f'Permissão inválida para MySQL: {perm}'
+              if 'tables' in schema:
+                  for table in schema['tables']:
+                      for perm in table.get('permissions', []):
+                          assert perm in mysql_perms, f'Permissão inválida para MySQL: {perm}'
+          print('✅ JSON de permissões válido para MySQL')
+          "
+
+      - name: Install Python Dependencies
+        run: pip install pyyaml
+
+      - name: Fetch Credentials from Parameter Store
+        id: fetch_credentials
+        run: |
+          echo "🔍 Buscando credenciais no Parameter Store..."
+          
+          config=$(aws ssm get-parameter \
+            --name "rds-access-control" \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text)
+
+          db_key="${{ github.event.inputs.database }}-mysql"
+          user=$(echo "$config" | grep "^${db_key}-user=" | cut -d'=' -f2-)
+          pass=$(echo "$config" | grep "^${db_key}-password=" | cut -d'=' -f2-)
+
+          if [ -z "$user" ] || [ -z "$pass" ]; then
+            echo "❌ Credenciais não encontradas para ${db_key}"
+            exit 1
+          fi
+
+          echo "::add-mask::$user"
+          echo "::add-mask::$pass"
+
+          echo "DB_USER=$user" >> $GITHUB_ENV
+          echo "DB_PASS=$pass" >> $GITHUB_ENV
+
+      - name: Setup File Paths
+        id: setup
+        run: |
+          # Nova estrutura: ambiente/engine/database/usuario.yml
+          user_email="${{ github.event.inputs.email }}"
+          database="${{ github.event.inputs.database }}"
+          environment="${{ github.event.inputs.ambiente }}"
+          
+          # Criar estrutura de diretórios
+          directory="users-access-requests/${environment}/mysql/${database}"
+          file_path="${directory}/${user_email}.yml"
+          
+          # Nome da branch
+          username="$(echo ${user_email} | cut -d '@' -f1)"
+          branch_name="mysql-revoke-${username}-${database}-$(date +%s)"
+          
+          echo "directory=$directory" >> $GITHUB_OUTPUT
+          echo "file_path=$file_path" >> $GITHUB_OUTPUT
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+          echo "user_email=$user_email" >> $GITHUB_OUTPUT
+
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Revoke Total Access
+        if: ${{ github.event.inputs.tipo_operacao == 'revogar_total' }}
+        run: |
+          echo "🗑️ Revogando acesso total do usuário..."
+          file_path="${{ steps.setup.outputs.file_path }}"
+          
+          if [ -f "$file_path" ]; then
+            # Usar script Python específico para revogação total
+            python3 scripts/revoke_all_permissions.py "$file_path"
+            
+            # Remover arquivo após revogação bem-sucedida
+            git rm "$file_path"
+            git commit -m "🗑️ MySQL: Revogar acesso total do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
+            echo "✅ Permissões revogadas e arquivo removido: $file_path"
+          else
+            echo "⚠️ Arquivo não encontrado: $file_path"
+            echo "ℹ️ Usuário pode não ter permissões neste banco ou já foi revogado"
+            # Criar commit vazio para manter consistência do fluxo
+            git commit --allow-empty -m "🗑️ MySQL: Tentativa de revogar acesso do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }} (arquivo não encontrado)"
+          fi
+
+      - name: Remove Specific Permissions
+        if: ${{ github.event.inputs.tipo_operacao == 'remover_permissoes' }}
+        env:
+          INPUT_AMBIENTE: ${{ github.event.inputs.ambiente }}
+          INPUT_HOST: ${{ github.event.inputs.host }}
+          INPUT_EMAIL: ${{ github.event.inputs.email }}
+          INPUT_DATABASE: ${{ github.event.inputs.database }}
+          INPUT_ENGINE: "mysql"
+          INPUT_REGION: ${{ github.event.inputs.region }}
+          INPUT_PORT: ${{ github.event.inputs.port }}
+          INPUT_PERMISSIONS_JSON: ${{ github.event.inputs.permissoes }}
+          INPUT_REVOGAR: "false"
+          INPUT_REMOVER_PERMISSOES: "true"
+        run: |
+          echo "➖ Removendo permissões específicas..."
+          echo "📁 Estrutura: ${{ steps.setup.outputs.directory }}"
+          echo "📄 Arquivo: ${{ steps.setup.outputs.file_path }}"
+          
+          # Verificar se arquivo existe
+          if [ ! -f "${{ steps.setup.outputs.file_path }}" ]; then
+            echo "❌ Arquivo não encontrado: ${{ steps.setup.outputs.file_path }}"
+            echo "ℹ️ Usuário pode não ter permissões neste banco"
+            exit 1
+          fi
+          
+          echo "📝 Processando remoção de permissões específicas..."
+          
+          # Criar cópia do arquivo original para comparação
+          cp "${{ steps.setup.outputs.file_path }}" "/tmp/arquivo_antes.yml"
+          
+          # Processar remoção usando merge_permissions.py (ele já suporta remoção)
+          python3 scripts/merge_permissions.py "${{ steps.setup.outputs.file_path }}" '${{ github.event.inputs.permissoes }}'
+          
+          # Usar script Python específico para aplicar a revogação parcial
+          python3 scripts/revoke_permissions.py "/tmp/arquivo_antes.yml" "${{ steps.setup.outputs.file_path }}"
+          
+          # Adicionar ao Git
+          git add "${{ steps.setup.outputs.file_path }}"
+          
+          # Commit de remoção
+          git commit -m "➖ MySQL: Remover permissões específicas do usuário ${{ steps.setup.outputs.user_email }} no banco ${{ github.event.inputs.database }}"
+          
+          echo "✅ Permissões removidas com sucesso!"
+
+      - name: Create Pull Request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: ${{ steps.setup.outputs.branch_name }}
+          base: main
+          title: "${{ github.event.inputs.tipo_operacao == 'revogar_total' && '🗑️ MySQL: Revogar acesso total' || '➖ MySQL: Remover permissões específicas' }} - ${{ github.event.inputs.email }}"
+          body: |
+            ## 🗑️ MySQL - ${{ github.event.inputs.tipo_operacao == 'revogar_total' && 'Revogação Total' || 'Remoção de Permissões' }}
+            
+            **📋 Informações:**
+            - 👤 **Usuário:** `${{ github.event.inputs.email }}`
+            - 🌍 **Ambiente:** `${{ github.event.inputs.ambiente }}`
+            - 🗄️ **Banco:** `${{ github.event.inputs.database }}`
+            - 🔌 **Host:** `${{ github.event.inputs.host }}`
+            - 🚪 **Porta:** `${{ github.event.inputs.port }}`
+            - 🌐 **Região:** `${{ github.event.inputs.region }}`
+            
+            **🎯 Tipo de Operação:**
+            ${{ github.event.inputs.tipo_operacao == 'revogar_total' && '🗑️ **REVOGAÇÃO TOTAL** - Remove todas as permissões e deleta o arquivo YAML' || '➖ **REMOÇÃO PARCIAL** - Remove apenas as permissões especificadas' }}
+            
+            ${{ github.event.inputs.tipo_operacao == 'remover_permissoes' && format('**🔍 Permissões a Remover:**
+            ```json
+            {0}
+            ```', github.event.inputs.permissoes) || '**ℹ️ Operação:** Revogação completa - nenhuma permissão JSON necessária' }}
+            
+            ---
+            **⚠️ Importante:** Após o merge, as alterações serão aplicadas automaticamente no MySQL.
+          commit-message: "feat: 🗑️ MySQL ${{ github.event.inputs.tipo_operacao == 'revogar_total' && 'revogar acesso total' || 'remover permissões' }} para ${{ github.event.inputs.email }}"
+          delete-branch: false
+
+      - name: Show Results
+        run: |
+          echo "🎉 Pull Request criado com sucesso!"
+          echo "🔗 URL: ${{ steps.create_pr.outputs.pull-request-url }}"
+          echo ""
+          echo "📋 Resumo MySQL ${{ github.event.inputs.tipo_operacao }}:"
+          echo "  👤 Usuário: ${{ github.event.inputs.email }}"
+          echo "  🌍 Ambiente: ${{ github.event.inputs.ambiente }}"
+          echo "  🗄️ Banco: ${{ github.event.inputs.database }}"
+          echo "  🔌 Host: ${{ github.event.inputs.host }}"
+          echo "  🚪 Porta: ${{ github.event.inputs.port }}"
+          echo "  🎯 Operação: ${{ github.event.inputs.tipo_operacao == 'revogar_total' && 'Revogação Total' || 'Remoção de Permissões Específicas' }}"
+          echo ""
+          echo "⏳ Aguardando aprovação e merge para aplicação das alterações..." 

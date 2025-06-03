@@ -17,7 +17,7 @@ ENGINES_VALIDOS = ["postgres", "postgresql", "mysql", "aurora"]
 PERMISSOES_VALIDAS_POSTGRES = [
     "SELECT", "INSERT", "UPDATE", "DELETE",
     "TRUNCATE", "REFERENCES", "TRIGGER",
-    "USAGE", "EXECUTE", "CREATE", "TEMP", "ALL PRIVILEGES"
+    "USAGE", "EXECUTE", "CREATE", "TEMP", "CONNECT", "ALL PRIVILEGES"
 ]
 
 PERMISSOES_VALIDAS_MYSQL = [
@@ -105,6 +105,8 @@ def revogar_todas_permissoes_postgres(conn, username, schemas):
                                     cur.execute(f'REVOKE {permissao_upper} ON SCHEMA {schema_nome} FROM "{username}";')
                                 elif permissao_upper == "TEMP":
                                     cur.execute(f'REVOKE TEMP ON DATABASE {conn.info.dbname} FROM "{username}";')
+                                elif permissao_upper == "CONNECT":
+                                    cur.execute(f'REVOKE CONNECT ON DATABASE {conn.info.dbname} FROM "{username}";')
                                 
                                 logger.info(f"Revogada permissão {permissao_upper} da tabela {schema_nome}.{nome_tabela}")
                             except Exception as e:
@@ -124,6 +126,8 @@ def revogar_todas_permissoes_postgres(conn, username, schemas):
                             elif permissao_upper == "ALL PRIVILEGES":
                                 cur.execute(f'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema_nome} FROM "{username}";')
                                 cur.execute(f'REVOKE ALL PRIVILEGES ON SCHEMA {schema_nome} FROM "{username}";')
+                            elif permissao_upper == "CONNECT":
+                                cur.execute(f'REVOKE CONNECT ON DATABASE {conn.info.dbname} FROM "{username}";')
                             
                             logger.info(f"Revogada permissão {permissao_upper} do schema {schema_nome}")
                         except Exception as e:

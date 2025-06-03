@@ -244,11 +244,65 @@ Crie os seguintes environments com proteção:
 
 ## 🚀 Como Usar
 
-### 1. 📝 Criar Solicitação via Workflow
+### 🧙‍♂️ Método Principal: Wizards Interativos (Recomendado)
 
-O sistema oferece workflows interativos para criar solicitações de acesso:
+O sistema oferece **wizards interativos** em 2 passos para criar solicitações de acesso de forma guiada e intuitiva:
 
-#### 🐬 MySQL Access Control
+#### 🐬 MySQL Wizard (2 Passos) - **MÉTODO RECOMENDADO**
+**🎯 Processo Simplificado e Guiado**
+
+**Passo 1 - Configuração Básica**:
+   - **Acesse**: GitHub Actions > "MySQL - Wizard Passo 1: Configuração Básica"
+   - **Configure**: ambiente, email, host, database, região, porta
+   - **Execute**: Run workflow
+   - **Resultado**: Session ID gerado para o próximo passo
+
+**Passo 2 - Seleção de Permissões**:
+   - **Acesse**: GitHub Actions > "MySQL - Wizard Passo 2: Seleção de Permissões"
+   - **Configure**: Session ID, schema, tabelas (opcional), permissões
+   - **Permissões DML**: SELECT, INSERT, UPDATE, DELETE
+   - **Permissões DDL**: CREATE, DROP, ALTER, INDEX
+   - **⚠️ Importante**: Se nenhuma permissão for marcada, o sistema aplicará **ALL PRIVILEGES** automaticamente
+   - **Execute**: Run workflow
+   - **Resultado**: Pull Request criado automaticamente
+
+#### 🐘 PostgreSQL/Aurora Wizard (2 Passos) - **MÉTODO RECOMENDADO**
+**🎯 Processo Simplificado e Guiado**
+
+**Passo 1 - Configuração Básica**:
+   - **Acesse**: GitHub Actions > "PostgreSQL/Aurora - Wizard Passo 1: Configuração Básica"
+   - **Configure**: ambiente, email, host, database, região, porta, engine_type (postgres/aurora)
+   - **Execute**: Run workflow
+   - **Resultado**: Session ID gerado para o próximo passo
+
+**Passo 2 - Seleção de Permissões**:
+   - **Acesse**: GitHub Actions > "PostgreSQL/Aurora - Wizard Passo 2: Seleção de Permissões"
+   - **Configure**: Session ID, schema, tabelas (opcional), permissões
+   - **Permissões DML**: SELECT, INSERT, UPDATE, DELETE
+   - **Permissões Específicas**: CREATE, TRIGGER, EXECUTE, CONNECT
+   - **⚠️ Importante**: Se nenhuma permissão for marcada, o sistema aplicará **ALL PRIVILEGES** automaticamente
+   - **Execute**: Run workflow
+   - **Resultado**: Pull Request criado automaticamente
+
+### 🔑 Vantagens dos Wizards
+- **🎯 Interface Simplificada**: Processo guiado em etapas
+- **🛡️ Validação Robusta**: Validação automática de Session IDs e entrada
+- **🧹 Gestão de Estado**: Arquivos temporários gerenciados automaticamente
+- **⚡ ALL PRIVILEGES**: Aplica automaticamente quando nenhuma permissão específica é selecionada
+- **🔄 Flexibilidade**: Suporte a permissões por schema ou tabelas específicas
+- **📝 Auditoria**: Logs detalhados de cada etapa do processo
+- **🛡️ Segurança**: Validação de segurança obrigatória em ambos os passos
+
+---
+
+### 📋 Métodos Alternativos (Para Casos Especiais)
+
+<details>
+<summary>🔧 Workflows Diretos (Para usuários avançados)</summary>
+
+#### 🐬 MySQL Access Control (Direto)
+⚠️ **NOTA**: Use apenas se precisar de controle avançado ou automação. **Para uso normal, prefira o MySQL Wizard**.
+
 1. **Acesse**: GitHub Actions > "MySQL Access Control"
 2. **Configure**:
    - **Ambiente**: development/staging/production
@@ -256,11 +310,13 @@ O sistema oferece workflows interativos para criar solicitações de acesso:
    - **Database**: nome_do_banco
    - **Host**: host.rds.amazonaws.com
    - **Schema**: nome_do_schema
-   - **Permissões**: SELECT, INSERT, UPDATE, etc.
+   - **Permissões**: JSON completo (copie de examples-permissions/)
 3. **Execute**: Run workflow
 4. **Resultado**: Pull Request criado automaticamente
 
-#### 🐘 PostgreSQL/Aurora Access Control
+#### 🐘 PostgreSQL/Aurora Access Control (Direto)
+⚠️ **NOTA**: Use apenas se precisar de controle avançado ou automação. **Para uso normal, prefira o PostgreSQL/Aurora Wizard**.
+
 1. **Acesse**: GitHub Actions > "PostgreSQL Aurora Access Control"  
 2. **Configure**:
    - **Ambiente**: development/staging/production
@@ -269,18 +325,22 @@ O sistema oferece workflows interativos para criar solicitações de acesso:
    - **Database**: nome_do_banco
    - **Host**: host.rds.amazonaws.com
    - **Schema**: nome_do_schema
-   - **Permissões**: SELECT, INSERT, UPDATE, etc.
+   - **Permissões**: JSON completo (copie de examples-permissions/)
 3. **Execute**: Run workflow
 4. **Resultado**: Pull Request criado automaticamente
 
-### 2. 🔄 Aprovação e Merge
+</details>
 
-1. **Revisar**: Pull Request criado automaticamente
+### 🔄 Processo Completo de Aprovação e Aplicação
+
+#### 1. 🔄 Aprovação e Merge
+
+1. **Revisar**: Pull Request criado automaticamente pelo wizard
 2. **Validar**: Arquivo YAML gerado com permissões corretas
 3. **Aprovar**: Reviewer aprova o PR
 4. **Merge**: Fazer merge para branch `main`
 
-### 3. 🤖 Aplicação Automática
+#### 2. 🤖 Aplicação Automática
 
 1. **Detecção**: `apply_access.yml` detecta ambiente automaticamente pelo path
 2. **Validação**: Executa validação de segurança obrigatória  
@@ -288,16 +348,40 @@ O sistema oferece workflows interativos para criar solicitações de acesso:
 4. **Aplicação**: Aplica permissões no banco de dados correto
 5. **Logs**: Gera logs detalhados da operação no GitHub Actions
 
-### 4. 📊 Gerar Relatórios
+#### 3. 📝 Gerar Relatórios (Opcional)
 
-```bash
-# GitHub Actions > Generate Audit Reports
-# Inputs:
-# - User Email: usuario@empresa.com
-# - Format: html/json
-```
+- **📝 Finalidade**: Gerar relatórios de auditoria e relatórios gerais
+- **🔧 Uso**: Workflow manual via GitHub Actions
+- **📋 Inputs**:
+  - **Tipo de relatório**:
+    - `usuario-especifico`: Relatório de um usuário específico
+    - `todos-usuarios`: Relatório geral de todos os usuários
+  - `user_email`: Email do usuário (obrigatório apenas para relatório específico)
+  - `database_name`: Nome do banco específico (opcional para relatório específico)
+  - `output_format`: html ou json (JSON não suportado para relatório geral)
+- **📤 Output**: Relatórios disponíveis nos artifacts do workflow
+- **🎯 Scripts utilizados**:
+  - **Específico**: `generate_audit_reports.py` 
+  - **Geral**: `generate_general_report.py`
 
-> **💡 Importante**: O processo é **totalmente automatizado** após o merge. Não é necessário executar workflows adicionais manualmente!
+#### 📋 Tipos de Relatórios
+
+##### 👤 Relatório Específico (Usuario-Específico)
+- **Escopo**: Todas as permissões de um usuário específico
+- **Scripts**: `generate_audit_reports.py`
+- **Casos de uso**:
+  - **Usuário + Todos os bancos**: Relatório completo do usuário
+  - **Usuário + Banco específico**: Relatório filtrado por banco
+- **Formato**: HTML ou JSON
+
+##### 👥 Relatório Geral (Todos-Usuários)
+- **Escopo**: Visão consolidada de todos os usuários do sistema
+- **Scripts**: `generate_general_report.py`
+- **Casos de uso**:
+  - **Auditoria geral**: Visão executiva de todas as permissões
+  - **Compliance**: Relatório para auditorias regulares
+  - **Administração**: Gestão centralizada de acessos
+- **Formato**: HTML (JSON não suportado para relatório geral)
 
 ## 🔄 Detecção Automática de Ambiente
 
@@ -366,17 +450,35 @@ O sistema possui um **workflow principal** (`apply_access.yml`) que é executado
 
 ### 📈 Como Gerar
 
-1. **Acesse**: GitHub Actions > "Generate Audit Reports"
+1. **Acesse**: GitHub Actions > "Gerar relatórios"
 2. **Configure**:
-   - User Email: `usuario@empresa.com`
-   - Format: `html` ou `json`
+   - **Tipo de relatório**:
+     - `usuario-especifico`: Relatório de um usuário específico
+     - `todos-usuarios`: Relatório geral de todos os usuários
+   - **User Email**: `usuario@empresa.com` (obrigatório apenas para relatório específico)
+   - **Database Name**: Nome do banco específico (opcional)
+   - **Format**: `html` ou `json`
 3. **Execute**: Run workflow
 4. **Download**: Artifacts gerados automaticamente
 
 ### 📋 Tipos de Relatórios
 
-- **👤 Usuário**: Todas as permissões de um usuário específico
-- **🗄️ Banco**: Todos os usuários com acesso a um banco
+#### 👤 Relatório Específico (Usuario-Específico)
+- **Escopo**: Todas as permissões de um usuário específico
+- **Scripts**: `generate_audit_reports.py`
+- **Casos de uso**:
+  - **Usuário + Todos os bancos**: Relatório completo do usuário
+  - **Usuário + Banco específico**: Relatório filtrado por banco
+- **Formato**: HTML ou JSON
+
+#### 👥 Relatório Geral (Todos-Usuários)
+- **Escopo**: Visão consolidada de todos os usuários do sistema
+- **Scripts**: `generate_general_report.py`
+- **Casos de uso**:
+  - **Auditoria geral**: Visão executiva de todas as permissões
+  - **Compliance**: Relatório para auditorias regulares
+  - **Administração**: Gestão centralizada de acessos
+- **Formato**: HTML (JSON não suportado para relatório geral)
 
 ## 🔒 Hierarquia de Permissões
 
@@ -439,7 +541,7 @@ python scripts/security_validator.py
 
 #### 3. Teste de Relatórios
 ```bash
-# GitHub Actions > Generate Audit Reports
+# GitHub Actions > Gerar relatórios
 # Gera relatório de teste para validar funcionamento
 ```
 
@@ -462,7 +564,11 @@ database-access-control/
 ├── 📄 .gitignore                       # Arquivos ignorados
 ├── 📁 .github/workflows/               # GitHub Actions
 │   ├── 🔄 mysql_access.yml            # Workflow MySQL
+│   ├── 🔄 mysql_wizard_step1.yml      # MySQL Wizard - Configuração Básica
+│   ├── 🔄 mysql_wizard_step2.yml      # MySQL Wizard - Seleção de Permissões
 │   ├── 🔄 postgresql_aurora_access.yml # Workflow PostgreSQL/Aurora
+│   ├── 🔄 postgres_wizard_step1.yml   # PostgreSQL/Aurora Wizard - Configuração Básica
+│   ├── 🔄 postgres_wizard_step2.yml   # PostgreSQL/Aurora Wizard - Seleção de Permissões
 │   ├── 🔄 apply_access.yml            # Aplicação geral
 │   ├── 🔄 generate-audit-reports.yml  # Geração de relatórios
 │   └── 🔄 reusable-security-check.yml # Validação de segurança
@@ -470,7 +576,9 @@ database-access-control/
 │   ├── 🐍 apply_permissions.py        # Aplicar permissões
 │   ├── 🐍 revoke_permissions.py       # Revogar permissões
 │   ├── 🐍 merge_permissions.py        # Merge de permissões
-│   ├── 🐍 generate_audit_reports.py   # Gerar relatórios
+│   ├── 🐍 generate_audit_reports.py   # Gerar relatórios específicos
+│   ├── 🐍 generate_general_report.py  # Gerar relatório geral
+│   ├── 🐍 read_wizard_temp.py         # Leitura de arquivos temporários de wizard
 │   └── 🐍 security_validator.py       # Validação de segurança
 └── 📁 users-access-requests/          # Solicitações de acesso
     ├── 📁 development/                # Ambiente desenvolvimento
@@ -517,16 +625,49 @@ schemas:
 
 ### 🔄 Fluxo Completo
 
-1. **Executar workflow** de criação (MySQL/PostgreSQL) via GitHub Actions
-2. **Preencher formulário** com permissões necessárias
-3. **Pull Request** criado automaticamente com arquivo YAML
-4. **Aguardar aprovação** (manual para todos os ambientes: development/staging/production)
-5. **Merge** após aprovação
-6. **Aplicação automática** via `apply_access.yml` (detecta ambiente pelo path)
-7. **OIDC authentication** e assume role automático
-8. **Aguardar aplicação** das permissões no banco
-9. **Download do relatório** via artifacts (opcional)
-10. **Validar acesso** no banco de dados
+1. **Executar wizard** de criação (MySQL/PostgreSQL) via GitHub Actions
+   - **Passo 1**: Configuração básica (ambiente, host, database, etc.)
+   - **Passo 2**: Seleção de permissões (schema, tabelas, permissões específicas)
+2. **Pull Request** criado automaticamente com arquivo YAML
+3. **Aguardar aprovação** (manual para todos os ambientes: development/staging/production)
+4. **Merge** após aprovação
+5. **Aplicação automática** via `apply_access.yml` (detecta ambiente pelo path)
+6. **OIDC authentication** e assume role automático
+7. **Aguardar aplicação** das permissões no banco
+8. **Download do relatório** via artifacts (opcional)
+9. **Validar acesso** no banco de dados
+
+### 💡 Exemplo Prático do Novo Fluxo
+
+```
+📋 CENÁRIO: Dar acesso SELECT e INSERT para usuario@empresa.com no banco "ecommerce"
+
+🧙‍♂️ PASSO 1: MySQL Wizard - Configuração Básica
+├── 🌍 Ambiente: development
+├── 👤 Email: usuario@empresa.com
+├── 🔌 Host: ecommerce-dev.rds.amazonaws.com
+├── 🗄️ Database: ecommerce
+├── 🌐 Região: us-east-1
+└── 📁 Output: Session ID "mysql-wizard-1734567890-12345"
+
+🧙‍♂️ PASSO 2: MySQL Wizard - Seleção de Permissões
+├── 🔑 Session ID: mysql-wizard-1734567890-12345
+├── 📂 Schema: produtos
+├── ☑️ SELECT: Marcado
+├── ☑️ INSERT: Marcado
+├── ☐ UPDATE: Desmarcado
+└── 📤 Output: Pull Request criado
+
+🔄 FLUXO AUTOMÁTICO:
+├── 👀 Revisar PR → ✅ Aprovar → 🔀 Merge
+├── 🤖 apply_access.yml detecta "development" automaticamente
+├── 🛡️ Validação de segurança obrigatória
+├── ⏳ Aguarda aprovação manual do environment "development"
+├── 🔐 Conecta via OIDC no banco MySQL
+└── ✅ Aplica permissões: SELECT, INSERT no schema "produtos"
+
+✅ RESULTADO: usuario@empresa.com pode consultar e inserir dados na tabela produtos
+```
 
 ---
 
@@ -534,34 +675,59 @@ schemas:
 
 ## ⚙️ Workflows Disponíveis
 
-### 🐬 MySQL Access Control
-- **📝 Finalidade**: Criar/alterar permissões de acesso MySQL
-- **🔧 Uso**: Workflow interativo via GitHub Actions
-- **📋 Inputs Principais**:
-  - `ambiente`: development, staging, production
-  - `email`: Email do usuário (formato: user@empresa.com)
-  - `database`: Nome do banco de dados
-  - `host`: Endpoint do RDS MySQL
-  - `schema`: Nome do schema
-  - `permissões`: SELECT, INSERT, UPDATE, DELETE, etc.
-- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
-- **📁 Estrutura**: `users-access-requests/{ambiente}/mysql/{database}/{email}.yml`
+### 🧙‍♂️ Wizards Interativos (RECOMENDADO)
 
-### 🐘 PostgreSQL Aurora Access Control  
-- **📝 Finalidade**: Criar/alterar permissões PostgreSQL/Aurora
-- **🔧 Uso**: Workflow interativo via GitHub Actions
-- **📋 Inputs Principais**:
-  - `ambiente`: development, staging, production
-  - `engine_type`: postgres ou aurora
-  - `email`: Email do usuário (formato: user@empresa.com)
-  - `database`: Nome do banco de dados
-  - `host`: Endpoint do RDS PostgreSQL/Aurora
-  - `schema`: Nome do schema
-  - `permissões`: SELECT, INSERT, UPDATE, DELETE, TRUNCATE, etc.
-- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
-- **📁 Estrutura**: `users-access-requests/{ambiente}/{engine}/{database}/{email}.yml`
+#### 🐬 MySQL Wizard (2 Passos)
+- **📝 Finalidade**: Processo interativo de criação de permissões MySQL em 2 etapas
+- **🔧 Uso**: Workflow manual via GitHub Actions
+- **🛡️ Segurança**: Validação de segurança obrigatória em ambos os passos
 
-### 🤖 Apply DB Access (Automático)
+##### 🔧 Passo 1 - Configuração Básica
+- **Workflow**: `MySQL - Wizard Passo 1: Configuração Básica`
+- **📋 Inputs**: ambiente, email, host, database, região, porta
+- **📤 Output**: Session ID para usar no Passo 2
+- **📁 Arquivo Temporário**: `wizard-temp/mysql-wizard-{timestamp}-{runid}.yml`
+
+##### 🎯 Passo 2 - Seleção de Permissões
+- **Workflow**: `MySQL - Wizard Passo 2: Seleção de Permissões`
+- **📋 Inputs**:
+  - `session_id`: Session ID gerado no Passo 1
+  - `schema_name`: Nome do schema/database
+  - `tables_list`: Lista de tabelas específicas (opcional)
+  - **Permissões DML**: SELECT, INSERT, UPDATE, DELETE
+  - **Permissões DDL**: CREATE, DROP, ALTER, INDEX
+- **⚠️ ALL PRIVILEGES**: Se nenhuma permissão for marcada, aplica automaticamente ALL PRIVILEGES
+- **📤 Output**: Pull Request com arquivo final gerado
+- **🧹 Limpeza**: Remove arquivo temporário automaticamente
+
+#### 🐘 PostgreSQL/Aurora Wizard (2 Passos)
+- **📝 Finalidade**: Processo interativo de criação de permissões PostgreSQL/Aurora em 2 etapas
+- **🔧 Uso**: Workflow manual via GitHub Actions
+- **🛡️ Segurança**: Validação de segurança obrigatória em ambos os passos
+
+##### 🔧 Passo 1 - Configuração Básica
+- **Workflow**: `PostgreSQL/Aurora - Wizard Passo 1: Configuração Básica`
+- **📋 Inputs**: ambiente, email, host, database, região, porta, engine_type (postgres/aurora)
+- **📤 Output**: Session ID para usar no Passo 2
+- **📁 Arquivo Temporário**: `wizard-temp/postgres-wizard-{timestamp}-{runid}.yml`
+
+##### 🎯 Passo 2 - Seleção de Permissões
+- **Workflow**: `PostgreSQL/Aurora - Wizard Passo 2: Seleção de Permissões`
+- **📋 Inputs**:
+  - `session_id`: Session ID gerado no Passo 1
+  - `schema_name`: Nome do schema
+  - `tables_list`: Lista de tabelas específicas (opcional)
+  - **Permissões DML**: SELECT, INSERT, UPDATE, DELETE
+  - **Permissões Específicas**: CREATE, TRIGGER, EXECUTE, CONNECT
+- **⚠️ ALL PRIVILEGES**: Se nenhuma permissão for marcada, aplica automaticamente ALL PRIVILEGES
+- **📤 Output**: Pull Request com arquivo final gerado
+- **🧹 Limpeza**: Remove arquivo temporário automaticamente
+
+---
+
+### 🤖 Workflows de Sistema (Automáticos)
+
+#### 🤖 Apply DB Access (Automático)
 - **📝 Finalidade**: Aplicar permissões automaticamente após merge
 - **🔧 Uso**: Executado automaticamente pelo GitHub Actions
 - **🎯 Trigger**: Push para branch `main` com arquivos `users-access-requests/**.yml`
@@ -569,17 +735,7 @@ schemas:
 - **🛡️ Validação**: Validação de segurança obrigatória antes da aplicação
 - **⚙️ Processo**: Conecta no RDS via OIDC e aplica permissões
 
-### 📊 Generate Audit Reports
-- **📝 Finalidade**: Gerar relatórios de auditoria por usuário
-- **🔧 Uso**: Workflow manual via GitHub Actions
-- **📋 Inputs**:
-  - `user_email`: Email do usuário para relatório
-  - `database_name`: Nome do banco específico (opcional)
-  - `output_format`: html ou json
-- **📤 Output**: Relatório disponível nos artifacts do workflow
-- **📅 Automação**: Relatórios semanais automáticos (agenda configurável)
-
-### 🛡️ Reusable Security Check
+#### 🛡️ Reusable Security Check
 - **📝 Finalidade**: Validação de segurança reutilizável
 - **🔧 Uso**: Chamado automaticamente por outros workflows
 - **🔍 Validações**: 
@@ -589,4 +745,60 @@ schemas:
   - Estrutura de diretórios correta
 - **✅ Resultado**: Aprovação/bloqueio para prosseguir com operações
 
-> **🎯 Fluxo Recomendado**: Use os workflows de criação (MySQL/PostgreSQL) → Approve PR → Automático (Apply DB Access) → Opcional (Generate Reports)
+---
+
+### 📊 Workflows de Relatórios
+
+#### 📊 Gerar Relatórios
+- **📝 Finalidade**: Gerar relatórios de auditoria e relatórios gerais
+- **🔧 Uso**: Workflow manual via GitHub Actions
+- **📋 Inputs**:
+  - **Tipo de relatório**:
+    - `usuario-especifico`: Relatório de um usuário específico
+    - `todos-usuarios`: Relatório geral de todos os usuários
+  - `user_email`: Email do usuário (obrigatório apenas para relatório específico)
+  - `database_name`: Nome do banco específico (opcional para relatório específico)
+  - `output_format`: html ou json (JSON não suportado para relatório geral)
+- **📤 Output**: Relatórios disponíveis nos artifacts do workflow
+- **🎯 Scripts utilizados**:
+  - **Específico**: `generate_audit_reports.py` 
+  - **Geral**: `generate_general_report.py`
+
+---
+
+### 🔧 Workflows Diretos (Para Casos Especiais)
+
+⚠️ **IMPORTANTE**: Os workflows abaixo são para **usuários avançados** ou **casos especiais**. Para uso normal, **prefira sempre os Wizards** acima.
+
+#### 🐬 MySQL Access Control (Direto)
+- **📝 Finalidade**: Criar/alterar permissões de acesso MySQL diretamente
+- **🔧 Uso**: Workflow interativo via GitHub Actions
+- **⚠️ Complexidade**: Requer conhecimento de JSON e estruturas de permissões
+- **📋 Inputs Principais**:
+  - `ambiente`: development, staging, production
+  - `email`: Email do usuário (formato: user@empresa.com)
+  - `database`: Nome do banco de dados
+  - `host`: Endpoint do RDS MySQL
+  - `schema`: Nome do schema
+  - `permissões`: JSON completo (copie de examples-permissions/)
+- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
+- **📁 Estrutura**: `users-access-requests/{ambiente}/mysql/{database}/{email}.yml`
+
+#### 🐘 PostgreSQL Aurora Access Control (Direto)
+- **📝 Finalidade**: Criar/alterar permissões PostgreSQL/Aurora diretamente
+- **🔧 Uso**: Workflow interativo via GitHub Actions
+- **⚠️ Complexidade**: Requer conhecimento de JSON e estruturas de permissões
+- **📋 Inputs Principais**:
+  - `ambiente`: development, staging, production
+  - `engine_type`: postgres ou aurora
+  - `email`: Email do usuário (formato: user@empresa.com)
+  - `database`: Nome do banco de dados
+  - `host`: Endpoint do RDS PostgreSQL/Aurora
+  - `schema`: Nome do schema
+  - `permissões`: JSON completo (copie de examples-permissions/)
+- **📤 Output**: Pull Request com arquivo YAML gerado automaticamente
+- **📁 Estrutura**: `users-access-requests/{ambiente}/{engine}/{database}/{email}.yml`
+
+---
+
+> **🎯 Fluxo Recomendado**: Use os **Wizards** (MySQL/PostgreSQL) → Approve PR → Automático (Apply DB Access) → Opcional (Gerar Relatórios)

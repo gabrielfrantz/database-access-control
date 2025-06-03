@@ -1,0 +1,390 @@
+name: "MySQL - Wizard Passo 2: Seleção de Permissões"
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: "Session ID do Step 1 (ex: mysql-wizard-1734567890-12345)"
+        required: true
+        type: string
+      
+      # Configuração de Schema e Tabelas
+      schema_name:
+        description: "📂 Nome do Schema/Database a aplicar as permissões"
+        required: true
+        type: string
+      tables_list:
+        description: "📋 Tabelas específicas (separar por vírgula) - deixe vazio para aplicar em TODAS"
+        required: false
+        type: string
+        
+      # Permissões DML (Data Manipulation Language)
+      schema_select:
+        description: "📋 SELECT - Consultar dados no schema"
+        required: false
+        type: boolean
+        default: false
+      schema_insert:
+        description: "➕ INSERT - Inserir dados no schema"  
+        required: false
+        type: boolean
+        default: false
+      schema_update:
+        description: "✏️ UPDATE - Atualizar dados no schema"
+        required: false
+        type: boolean
+        default: false
+      schema_delete:
+        description: "🗑️ DELETE - Deletar dados no schema"
+        required: false
+        type: boolean
+        default: false
+      
+      # Permissões DDL (Data Definition Language)
+      schema_create:
+        description: "🏗️ CREATE - Criar tabelas no schema"
+        required: false
+        type: boolean
+        default: false
+      schema_drop:
+        description: "💣 DROP - Remover tabelas do schema"
+        required: false
+        type: boolean
+        default: false
+      schema_alter:
+        description: "🔧 ALTER - Modificar estrutura do schema"
+        required: false
+        type: boolean
+        default: false
+      schema_index:
+        description: "🔍 INDEX - Gerenciar índices do schema"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  # Validação de segurança obrigatória ANTES de qualquer operação
+  security-validation:
+    name: 🛡️ Validação de Segurança
+    uses: ./.github/workflows/reusable-security-check.yml
+    with:
+      workflow_name: "MySQL - Wizard Passo 2: Seleção de Permissões"
+      operation_type: "mysql"
+
+  # Job principal - só executa se a validação de segurança passar
+  processar_permissoes:
+    name: "🧙‍♂️ Processar Permissões MySQL"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    
+    # DEPENDÊNCIA OBRIGATÓRIA da validação de segurança
+    needs: security-validation
+    if: needs.security-validation.outputs.is_secure == 'true'
+
+    steps:
+      - name: Security Confirmation
+        run: |
+          echo "🛡️ VALIDAÇÃO DE SEGURANÇA APROVADA"
+          echo "================================="
+          echo "🎯 Status: ${{ needs.security-validation.outputs.security_status }}"
+          echo "🔓 Prosseguindo com operações MySQL Wizard seguras..."
+          echo ""
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validar Session ID
+        run: |
+          echo "🔍 Validando Session ID: ${{ github.event.inputs.session_id }}"
+          
+          if ! echo "${{ github.event.inputs.session_id }}" | grep -E '^mysql-wizard-[0-9]+-[0-9]+$'; then
+            echo "❌ Session ID inválido. Formato esperado: mysql-wizard-TIMESTAMP-RUNID"
+            echo "💡 Execute primeiro o 'MySQL - Wizard Passo 1' para obter um Session ID válido"
+            exit 1
+          fi
+          
+          temp_file="wizard-temp/${{ github.event.inputs.session_id }}.yml"
+          if [ ! -f "$temp_file" ]; then
+            echo "❌ Arquivo temporário não encontrado: $temp_file"
+            echo "💡 Certifique-se de que o Step 1 foi executado com sucesso"
+            exit 1
+          fi
+          
+          echo "✅ Session ID válido e arquivo temporário encontrado"
+
+      - name: Validar Entrada
+        run: |
+          echo "🔍 Validando entrada de dados..."
+          
+          # Validar schema name
+          if [ -z "${{ github.event.inputs.schema_name }}" ]; then
+            echo "❌ Nome do schema é obrigatório"
+            exit 1
+          fi
+          
+          echo "✅ Validação de entrada concluída"
+
+      - name: Ler Dados do Arquivo Temporário
+        id: ler_temp
+        run: |
+          temp_file="wizard-temp/${{ github.event.inputs.session_id }}.yml"
+          
+          echo "📖 Lendo dados básicos do arquivo temporário..."
+          
+          # Extrair dados usando grep e sed
+          ambiente=$(grep "ambiente:" "$temp_file" | sed 's/.*ambiente: "\(.*\)"/\1/')
+          email=$(grep "email:" "$temp_file" | sed 's/.*email: "\(.*\)"/\1/')
+          host=$(grep "host:" "$temp_file" | sed 's/.*host: "\(.*\)"/\1/')
+          database=$(grep "database:" "$temp_file" | sed 's/.*database: "\(.*\)"/\1/')
+          region=$(grep "region:" "$temp_file" | sed 's/.*region: "\(.*\)"/\1/')
+          port=$(grep "port:" "$temp_file" | sed 's/.*port: "\(.*\)"/\1/')
+          
+          echo "ambiente=$ambiente" >> $GITHUB_OUTPUT
+          echo "email=$email" >> $GITHUB_OUTPUT
+          echo "host=$host" >> $GITHUB_OUTPUT
+          echo "database=$database" >> $GITHUB_OUTPUT
+          echo "region=$region" >> $GITHUB_OUTPUT
+          echo "port=$port" >> $GITHUB_OUTPUT
+          
+          echo "📋 Dados básicos recuperados:"
+          echo "  👤 Email: $email"
+          echo "  🌍 Ambiente: $ambiente"
+          echo "  🗄️ Database: $database"
+
+      - name: Processar Lista de Tabelas
+        id: process_tables
+        run: |
+          tables_input="${{ github.event.inputs.tables_list }}"
+          
+          if [ -z "$tables_input" ]; then
+            echo "📂 Nenhuma tabela específica fornecida - aplicará permissões em TODO o schema"
+            echo "apply_to_all_schema=true" >> $GITHUB_OUTPUT
+            echo "tables_array=" >> $GITHUB_OUTPUT
+          else
+            echo "📋 Tabelas específicas fornecidas: $tables_input"
+            # Remover espaços e converter vírgulas em array
+            tables_clean=$(echo "$tables_input" | tr -d ' ')
+            echo "apply_to_all_schema=false" >> $GITHUB_OUTPUT
+            echo "tables_array=$tables_clean" >> $GITHUB_OUTPUT
+            echo "🎯 Aplicará permissões nas tabelas: $tables_clean"
+          fi
+
+      - name: Construir JSON de Permissões
+        id: build_permissions
+        run: |
+          echo "🏗️ Construindo JSON a partir dos checkboxes selecionados..."
+          
+          # Construir array de permissões selecionadas
+          perms=()
+          
+          # DML Permissions
+          [ "${{ github.event.inputs.schema_select }}" == "true" ] && perms+=("\"SELECT\"")
+          [ "${{ github.event.inputs.schema_insert }}" == "true" ] && perms+=("\"INSERT\"")
+          [ "${{ github.event.inputs.schema_update }}" == "true" ] && perms+=("\"UPDATE\"")
+          [ "${{ github.event.inputs.schema_delete }}" == "true" ] && perms+=("\"DELETE\"")
+          
+          # DDL Permissions
+          [ "${{ github.event.inputs.schema_create }}" == "true" ] && perms+=("\"CREATE\"")
+          [ "${{ github.event.inputs.schema_drop }}" == "true" ] && perms+=("\"DROP\"")
+          [ "${{ github.event.inputs.schema_alter }}" == "true" ] && perms+=("\"ALTER\"")
+          [ "${{ github.event.inputs.schema_index }}" == "true" ] && perms+=("\"INDEX\"")
+          
+          # Verificar se nenhuma permissão foi selecionada
+          if [ ${#perms[@]} -eq 0 ]; then
+            echo "⚠️ Nenhuma permissão específica selecionada - usando ALL PRIVILEGES"
+            perms=("\"ALL PRIVILEGES\"")
+          fi
+          
+          # Unir permissões com vírgula
+          IFS=','
+          permissions_list="${perms[*]}"
+          
+          # Construir JSON baseado no tipo de aplicação
+          if [ "${{ steps.process_tables.outputs.apply_to_all_schema }}" == "true" ]; then
+            # Aplicar permissões em todo o schema
+            permissions_json="{\"schema_permissions\": {\"${{ github.event.inputs.schema_name }}\": [${permissions_list}]}}"
+            echo "🎯 Aplicando permissões em todo o schema: ${{ github.event.inputs.schema_name }}"
+          else
+            # Aplicar permissões em tabelas específicas
+            permissions_json="{\"table_permissions\": {"
+            
+            # Converter lista de tabelas em entradas JSON
+            IFS=','
+            tables_array=(${{ steps.process_tables.outputs.tables_array }})
+            table_entries=()
+            
+            for table in "${tables_array[@]}"; do
+              table_entries+=("\"$table\": [${permissions_list}]")
+            done
+            
+            IFS=','
+            permissions_json+="${table_entries[*]}"
+            permissions_json+="}}"
+            
+            echo "🎯 Aplicando permissões nas tabelas específicas: ${{ steps.process_tables.outputs.tables_array }}"
+          fi
+          
+          echo "🔍 Permissões selecionadas: ${perms[*]}"
+          echo "permissions_json=$permissions_json" >> $GITHUB_OUTPUT
+          echo "🎯 JSON final construído: $permissions_json"
+
+      - name: Instalar Dependências Python
+        run: pip install pyyaml
+
+      - name: Configurar Paths de Arquivos
+        id: setup_paths
+        run: |
+          ambiente="${{ steps.ler_temp.outputs.ambiente }}"
+          email="${{ steps.ler_temp.outputs.email }}"
+          database="${{ steps.ler_temp.outputs.database }}"
+          
+          # Estrutura final: ambiente/mysql/database/usuario.yml
+          directory="users-access-requests/${ambiente}/mysql/${database}"
+          file_path="${directory}/${email}.yml"
+          
+          # Nome da branch
+          username="$(echo ${email} | cut -d '@' -f1)"
+          branch_name="mysql-wizard-${username}-${database}-$(date +%s)"
+          
+          echo "directory=$directory" >> $GITHUB_OUTPUT
+          echo "file_path=$file_path" >> $GITHUB_OUTPUT
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+          
+          echo "📁 Estrutura de destino:"
+          echo "  📂 Diretório: $directory"
+          echo "  📄 Arquivo: $file_path"
+          echo "  🌿 Branch: $branch_name"
+
+      - name: Gerar Arquivo Final
+        env:
+          INPUT_AMBIENTE: ${{ steps.ler_temp.outputs.ambiente }}
+          INPUT_HOST: ${{ steps.ler_temp.outputs.host }}
+          INPUT_EMAIL: ${{ steps.ler_temp.outputs.email }}
+          INPUT_DATABASE: ${{ steps.ler_temp.outputs.database }}
+          INPUT_ENGINE: "mysql"
+          INPUT_REGION: ${{ steps.ler_temp.outputs.region }}
+          INPUT_PORT: ${{ steps.ler_temp.outputs.port }}
+          INPUT_SCHEMA_NAME: ${{ github.event.inputs.schema_name }}
+          INPUT_PERMISSIONS_JSON: ${{ steps.build_permissions.outputs.permissions_json }}
+          INPUT_REVOGAR: "false"
+          INPUT_REMOVER_PERMISSOES: "false"
+        run: |
+          echo "🔧 Gerando arquivo final de permissões..."
+          
+          # Criar diretório se não existir
+          mkdir -p "${{ steps.setup_paths.outputs.directory }}"
+          
+          # Usar o script merge_permissions.py para gerar o arquivo final
+          python3 scripts/merge_permissions.py "${{ steps.setup_paths.outputs.file_path }}" '${{ steps.build_permissions.outputs.permissions_json }}'
+          
+          echo "✅ Arquivo final gerado: ${{ steps.setup_paths.outputs.file_path }}"
+
+      - name: Limpar Arquivo Temporário
+        run: |
+          temp_file="wizard-temp/${{ github.event.inputs.session_id }}.yml"
+          
+          echo "🧹 Removendo arquivo temporário: $temp_file"
+          rm -f "$temp_file"
+          
+          # Remover diretório se estiver vazio
+          if [ -d "wizard-temp" ] && [ ! "$(ls -A wizard-temp)" ]; then
+            rmdir wizard-temp
+            echo "📁 Diretório wizard-temp removido (vazio)"
+          fi
+
+      - name: Configurar Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit das Alterações
+        run: |
+          # Adicionar arquivo final
+          git add "${{ steps.setup_paths.outputs.file_path }}"
+          
+          # Remover arquivo temporário do git se existir
+          temp_file="wizard-temp/${{ github.event.inputs.session_id }}.yml"
+          if git ls-files --error-unmatch "$temp_file" > /dev/null 2>&1; then
+            git rm "$temp_file" 2>/dev/null || true
+          fi
+          
+          # Remover diretório vazio se aplicável
+          if [ -d "wizard-temp" ] && [ ! "$(ls -A wizard-temp)" ]; then
+            git rm -rf wizard-temp 2>/dev/null || true
+          fi
+          
+          # Commit
+          git commit -m "🧙‍♂️ MySQL Wizard: Adicionar permissões para ${{ steps.ler_temp.outputs.email }} no banco ${{ steps.ler_temp.outputs.database }}"
+
+      - name: Criar Pull Request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: ${{ steps.setup_paths.outputs.branch_name }}
+          base: main
+          title: "🧙‍♂️ MySQL Wizard: Acesso para ${{ steps.ler_temp.outputs.email }}"
+          body: |
+            ## 🧙‍♂️ MySQL Wizard - Solicitação de Acesso
+            
+            **📋 Configuração Básica (Step 1):**
+            - 👤 **Usuário:** `${{ steps.ler_temp.outputs.email }}`
+            - 🌍 **Ambiente:** `${{ steps.ler_temp.outputs.ambiente }}`
+            - 🗄️ **Banco:** `${{ steps.ler_temp.outputs.database }}`
+            - 🔌 **Host:** `${{ steps.ler_temp.outputs.host }}`
+            - 🚪 **Porta:** `${{ steps.ler_temp.outputs.port }}`
+            - 🌐 **Região:** `${{ steps.ler_temp.outputs.region }}`
+            
+            **🎯 Permissões Selecionadas (Step 2):**
+            - 📂 **Schema:** `${{ github.event.inputs.schema_name }}`
+            - 📋 **Tabelas:** ${{ github.event.inputs.tables_list || 'TODAS (schema completo)' }}
+            - 🎯 **Escopo:** ${{ steps.process_tables.outputs.apply_to_all_schema == 'true' && 'Schema completo' || 'Tabelas específicas' }}
+            
+            **🔍 JSON de Permissões:**
+            ```json
+            ${{ steps.build_permissions.outputs.permissions_json }}
+            ```
+            
+            **📊 Resumo das Permissões:**
+            ${{ github.event.inputs.schema_select == 'true' && '- ✅ SELECT (Consultar dados)' || '' }}
+            ${{ github.event.inputs.schema_insert == 'true' && '- ✅ INSERT (Inserir dados)' || '' }}
+            ${{ github.event.inputs.schema_update == 'true' && '- ✅ UPDATE (Atualizar dados)' || '' }}
+            ${{ github.event.inputs.schema_delete == 'true' && '- ✅ DELETE (Deletar dados)' || '' }}
+            ${{ github.event.inputs.schema_create == 'true' && '- ✅ CREATE (Criar tabelas)' || '' }}
+            ${{ github.event.inputs.schema_drop == 'true' && '- ✅ DROP (Remover tabelas)' || '' }}
+            ${{ github.event.inputs.schema_alter == 'true' && '- ✅ ALTER (Modificar estrutura)' || '' }}
+            ${{ github.event.inputs.schema_index == 'true' && '- ✅ INDEX (Gerenciar índices)' || '' }}
+            
+            ---
+            **⚠️ Importante:** Após o merge, as permissões serão aplicadas automaticamente no MySQL.
+            
+            **🧙‍♂️ Session ID:** `${{ github.event.inputs.session_id }}`
+          delete-branch: false
+
+      - name: Mostrar Resultados
+        run: |
+          echo "🎉 MySQL Wizard concluído com sucesso!"
+          echo ""
+          echo "📋 Resumo da Operação:"
+          echo "  👤 Usuário: ${{ steps.ler_temp.outputs.email }}"
+          echo "  🌍 Ambiente: ${{ steps.ler_temp.outputs.ambiente }}"
+          echo "  🗄️ Database: ${{ steps.ler_temp.outputs.database }}"
+          echo "  📂 Schema: ${{ github.event.inputs.schema_name }}"
+          echo "  📋 Tabelas: ${{ github.event.inputs.tables_list || 'TODAS (schema completo)' }}"
+          echo "  🎯 Escopo: ${{ steps.process_tables.outputs.apply_to_all_schema == 'true' && 'Schema completo' || 'Tabelas específicas' }}"
+          echo "  🔌 Host: ${{ steps.ler_temp.outputs.host }}"
+          echo "  📄 Arquivo criado: ${{ steps.setup_paths.outputs.file_path }}"
+          echo "  🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
+          echo ""
+          echo "🔄 Próximos passos:"
+          echo "1. Revisar o Pull Request criado"
+          echo "2. Aprovar e fazer merge"
+          echo "3. As permissões serão aplicadas automaticamente"
+          echo ""
+          echo "🧹 Limpeza realizada:"
+          echo "  ✅ Arquivo temporário removido"
+          echo "  ✅ Arquivo final criado em: ${{ steps.setup_paths.outputs.file_path }}" 

@@ -26,52 +26,87 @@ def validate_permissions_json(json_string):
     try:
         permissions_data = json.loads(json_string)
         
-        if not isinstance(permissions_data, list):
-            raise ValueError("JSON deve ser uma lista de objetos")
-        
-        for i, item in enumerate(permissions_data):
-            if not isinstance(item, dict):
-                raise ValueError(f"Item {i+1} deve ser um objeto")
-            
-            if "nome" not in item:
-                raise ValueError(f"Item {i+1}: campo 'nome' é obrigatório")
-            
-            # Verificar se é formato granular ou simples
-            if "tipo" in item and item["tipo"] == "granular":
-                # Formato granular - validar tabelas
-                if "tabelas" not in item:
-                    raise ValueError(f"Item {i+1}: formato granular requer campo 'tabelas'")
+        # Novo formato dos wizards: {"schema_permissions": {...}} ou {"table_permissions": {...}}
+        if isinstance(permissions_data, dict):
+            if "schema_permissions" in permissions_data:
+                # Formato: {"schema_permissions": {"schema_name": ["SELECT", "INSERT"]}}
+                schema_perms = permissions_data["schema_permissions"]
+                if not isinstance(schema_perms, dict):
+                    raise ValueError("schema_permissions deve ser um objeto")
                 
-                if not isinstance(item["tabelas"], list):
-                    raise ValueError(f"Item {i+1}: 'tabelas' deve ser uma lista")
+                for schema_name, perms in schema_perms.items():
+                    if not isinstance(perms, list):
+                        raise ValueError(f"Permissões do schema '{schema_name}' devem ser uma lista")
+                    if not perms:
+                        raise ValueError(f"Schema '{schema_name}' deve ter pelo menos uma permissão")
                 
-                for j, table in enumerate(item["tabelas"]):
-                    if not isinstance(table, dict):
-                        raise ValueError(f"Item {i+1}, tabela {j+1}: deve ser um objeto")
-                    
-                    if "nome" not in table:
-                        raise ValueError(f"Item {i+1}, tabela {j+1}: campo 'nome' é obrigatório")
-                    
-                    if "permissions" not in table:
-                        raise ValueError(f"Item {i+1}, tabela {j+1}: campo 'permissions' é obrigatório")
-                    
-                    if not isinstance(table["permissions"], list):
-                        raise ValueError(f"Item {i+1}, tabela {j+1}: 'permissions' deve ser uma lista")
-                    
-                    if not table["permissions"]:
-                        raise ValueError(f"Item {i+1}, tabela {j+1}: pelo menos uma permissão deve ser especificada")
+                return permissions_data
+            
+            elif "table_permissions" in permissions_data:
+                # Formato: {"table_permissions": {"table1": ["SELECT"], "table2": ["INSERT"]}}
+                table_perms = permissions_data["table_permissions"]
+                if not isinstance(table_perms, dict):
+                    raise ValueError("table_permissions deve ser um objeto")
+                
+                for table_name, perms in table_perms.items():
+                    if not isinstance(perms, list):
+                        raise ValueError(f"Permissões da tabela '{table_name}' devem ser uma lista")
+                    if not perms:
+                        raise ValueError(f"Tabela '{table_name}' deve ter pelo menos uma permissão")
+                
+                return permissions_data
+            
             else:
-                # Formato simples - validar permissions
-                if "permissions" not in item:
-                    raise ValueError(f"Item {i+1}: campo 'permissions' é obrigatório")
-                
-                if not isinstance(item["permissions"], list):
-                    raise ValueError(f"Item {i+1}: 'permissions' deve ser uma lista")
-                
-                if not item["permissions"]:
-                    raise ValueError(f"Item {i+1}: pelo menos uma permissão deve ser especificada")
+                raise ValueError("JSON deve conter 'schema_permissions' ou 'table_permissions'")
         
-        return permissions_data
+        # Formato antigo (lista de objetos) - manter compatibilidade
+        elif isinstance(permissions_data, list):
+            for i, item in enumerate(permissions_data):
+                if not isinstance(item, dict):
+                    raise ValueError(f"Item {i+1} deve ser um objeto")
+                
+                if "nome" not in item:
+                    raise ValueError(f"Item {i+1}: campo 'nome' é obrigatório")
+                
+                # Verificar se é formato granular ou simples
+                if "tipo" in item and item["tipo"] == "granular":
+                    # Formato granular - validar tabelas
+                    if "tabelas" not in item:
+                        raise ValueError(f"Item {i+1}: formato granular requer campo 'tabelas'")
+                    
+                    if not isinstance(item["tabelas"], list):
+                        raise ValueError(f"Item {i+1}: 'tabelas' deve ser uma lista")
+                    
+                    for j, table in enumerate(item["tabelas"]):
+                        if not isinstance(table, dict):
+                            raise ValueError(f"Item {i+1}, tabela {j+1}: deve ser um objeto")
+                        
+                        if "nome" not in table:
+                            raise ValueError(f"Item {i+1}, tabela {j+1}: campo 'nome' é obrigatório")
+                        
+                        if "permissions" not in table:
+                            raise ValueError(f"Item {i+1}, tabela {j+1}: campo 'permissions' é obrigatório")
+                        
+                        if not isinstance(table["permissions"], list):
+                            raise ValueError(f"Item {i+1}, tabela {j+1}: 'permissions' deve ser uma lista")
+                        
+                        if not table["permissions"]:
+                            raise ValueError(f"Item {i+1}, tabela {j+1}: pelo menos uma permissão deve ser especificada")
+                else:
+                    # Formato simples - validar permissions
+                    if "permissions" not in item:
+                        raise ValueError(f"Item {i+1}: campo 'permissions' é obrigatório")
+                    
+                    if not isinstance(item["permissions"], list):
+                        raise ValueError(f"Item {i+1}: 'permissions' deve ser uma lista")
+                    
+                    if not item["permissions"]:
+                        raise ValueError(f"Item {i+1}: pelo menos uma permissão deve ser especificada")
+            
+            return permissions_data
+        
+        else:
+            raise ValueError("JSON deve ser um objeto ou uma lista")
         
     except json.JSONDecodeError as e:
         raise ValueError(f"JSON inválido: {e}")
@@ -290,21 +325,57 @@ def save_file(file_path, data, remove_mode):
 def process_permissions_from_json():
     """Processa JSON de permissões e retorna lista de schemas."""
     json_data = os.environ["INPUT_PERMISSIONS_JSON"]
-    permissions = json.loads(json_data)
+    permissions_data = json.loads(json_data)
     
-    # Converter formato examples-permissions para formato interno
     schemas = []
-    for item in permissions:
-        # Normalizar campo schema vs nome
-        schema_name = item.get("schema") or item.get("nome")
+    
+    # Novo formato dos wizards
+    if isinstance(permissions_data, dict):
+        if "schema_permissions" in permissions_data:
+            # Formato: {"schema_permissions": {"schema_name": ["SELECT", "INSERT"]}}
+            for schema_name, perms in permissions_data["schema_permissions"].items():
+                schema = {
+                    "nome": schema_name,
+                    "permissions": perms
+                }
+                schemas.append(schema)
+                logger.info(f"📂 Schema adicionado: {schema_name} com permissões: {', '.join(perms)}")
         
-        schema = {
-            "nome": schema_name,
-            "permissions": item["permissions"]
-        }
-        if "tables" in item:
-            schema["tables"] = item["tables"] 
-        schemas.append(schema)
+        elif "table_permissions" in permissions_data:
+            # Formato: {"table_permissions": {"table1": ["SELECT"], "table2": ["INSERT"]}}
+            # Para table_permissions, precisamos determinar o schema a partir do environment
+            schema_name = os.environ.get("INPUT_SCHEMA_NAME", "public")  # fallback para 'public'
+            
+            tabelas = []
+            for table_name, perms in permissions_data["table_permissions"].items():
+                tabela = {
+                    "nome": table_name,
+                    "permissions": perms
+                }
+                tabelas.append(tabela)
+                logger.info(f"📋 Tabela adicionada: {table_name} com permissões: {', '.join(perms)}")
+            
+            schema = {
+                "nome": schema_name,
+                "tipo": "granular",
+                "tabelas": tabelas
+            }
+            schemas.append(schema)
+    
+    # Formato antigo (lista) - manter compatibilidade
+    elif isinstance(permissions_data, list):
+        for item in permissions_data:
+            # Normalizar campo schema vs nome
+            schema_name = item.get("schema") or item.get("nome")
+            
+            schema = {
+                "nome": schema_name,
+                "permissions": item["permissions"]
+            }
+            if "tables" in item:
+                schema["tables"] = item["tables"] 
+            schemas.append(schema)
+            logger.info(f"📂 Schema (formato legado) adicionado: {schema_name}")
     
     return schemas
 

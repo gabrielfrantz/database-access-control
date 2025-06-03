@@ -3,9 +3,17 @@ name: Gerar relatórios
 on:
   workflow_dispatch:
     inputs:
-      user_email:
-        description: "Email do usuário"
+      report_type:
+        description: "Tipo de relatório"
         required: true
+        type: choice
+        options: 
+          - "usuario-especifico"
+          - "todos-usuarios"
+        default: "usuario-especifico"
+      user_email:
+        description: "Email do usuário (obrigatório apenas para relatório específico)"
+        required: false
         type: string
       database_name:
         description: "Nome do banco específico (opcional - deixe vazio para relatório completo)"
@@ -64,32 +72,62 @@ jobs:
         run: |
           echo "🔍 Validando inputs do relatório..."
           
-          if [ -z "${{ github.event.inputs.user_email }}" ]; then
-            echo "❌ Email do usuário é obrigatório"
-            exit 1
+          if [ "${{ github.event.inputs.report_type }}" == "usuario-especifico" ]; then
+            if [ -z "${{ github.event.inputs.user_email }}" ]; then
+              echo "❌ Email do usuário é obrigatório para relatório específico"
+              exit 1
+            fi
           fi
           
           echo "✅ Inputs validados"
-          echo "👤 Usuário: ${{ github.event.inputs.user_email }}"
+          echo "📊 Tipo: ${{ github.event.inputs.report_type }}"
+          echo "👤 Usuário: ${{ github.event.inputs.user_email || 'Todos os usuários' }}"
           echo "🗄️ Banco: ${{ github.event.inputs.database_name || 'Todos os bancos' }}"
           echo "📄 Formato: ${{ github.event.inputs.output_format }}"
 
-      - name: Generate User Report
+      - name: Generate General Report (All Users)
+        if: github.event.inputs.report_type == 'todos-usuarios'
+        run: |
+          echo "🔍 Gerando relatório geral para todos os usuários..."
+          
+          # Gerar nome do arquivo baseado no formato
+          timestamp=$(date +%Y%m%d-%H%M%S)
+          
+          if [ "${{ github.event.inputs.output_format }}" == "html" ]; then
+            output_file="relatorio-geral-todos-usuarios-${timestamp}.html"
+          else
+            output_file="relatorio-geral-todos-usuarios-${timestamp}.json"
+          fi
+          
+          echo "📁 Arquivo de saída: $output_file"
+          
+          # Executar geração do relatório geral
+          if [ "${{ github.event.inputs.output_format }}" == "html" ]; then
+            python scripts/generate_general_report.py --output "$output_file"
+          else
+            echo "⚠️ Formato JSON não suportado para relatório geral. Gerando em HTML..."
+            python scripts/generate_general_report.py --output "${output_file%.json}.html"
+          fi
+          
+          echo "✅ Relatório geral gerado com sucesso!"
+
+      - name: Generate User Specific Report
+        if: github.event.inputs.report_type == 'usuario-especifico'
         run: |
           echo "🔍 Gerando relatório para usuário: ${{ github.event.inputs.user_email }}"
           
           # Determinar tipo de relatório
           if [ -n "${{ github.event.inputs.database_name }}" ]; then
-            report_type="específico"
+            report_subtype="específico"
             database_param="--database ${{ github.event.inputs.database_name }}"
             output_suffix="${{ github.event.inputs.database_name }}"
           else
-            report_type="completo"
+            report_subtype="completo"
             database_param=""
             output_suffix="completo"
           fi
           
-          echo "📊 Tipo de relatório: $report_type"
+          echo "📊 Subtipo de relatório: $report_subtype"
           
           # Gerar nome do arquivo baseado no formato
           timestamp=$(date +%Y%m%d-%H%M%S)
@@ -103,95 +141,45 @@ jobs:
           
           echo "📁 Arquivo de saída: $output_file"
           
-          # Executar geração do relatório
+          # Executar geração do relatório específico
           python scripts/generate_audit_reports.py \
             --user "${{ github.event.inputs.user_email }}" \
             $database_param \
             --format ${{ github.event.inputs.output_format }} \
             --output "$output_file"
           
-          echo "✅ Relatório gerado com sucesso!"
+          echo "✅ Relatório específico gerado com sucesso!"
 
       - name: Upload Report Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: relatorio-auditoria-${{ github.event.inputs.output_format }}
+          name: relatorio-${{ github.event.inputs.report_type }}-${{ github.event.inputs.output_format }}
           path: "*.html,*.json"
           retention-days: 30
 
       - name: Generate Summary
         run: |
-          echo "## 📊 Relatório de Auditoria Gerado" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Relatório Gerado" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**👤 Usuário:** ${{ github.event.inputs.user_email }}" >> $GITHUB_STEP_SUMMARY
           
-          if [ -n "${{ github.event.inputs.database_name }}" ]; then
-            echo "**🗄️ Banco:** ${{ github.event.inputs.database_name }}" >> $GITHUB_STEP_SUMMARY
-            echo "**📋 Tipo:** Relatório Específico" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.report_type }}" == "todos-usuarios" ]; then
+            echo "**📋 Tipo:** Relatório Geral (Todos os Usuários)" >> $GITHUB_STEP_SUMMARY
+            echo "**🗄️ Escopo:** Sistema completo" >> $GITHUB_STEP_SUMMARY
+            echo "**👥 Usuários:** Todos os usuários do sistema" >> $GITHUB_STEP_SUMMARY
           else
-            echo "**🗄️ Banco:** Todos os bancos" >> $GITHUB_STEP_SUMMARY
-            echo "**📋 Tipo:** Relatório Completo" >> $GITHUB_STEP_SUMMARY
+            echo "**📋 Tipo:** Relatório Específico" >> $GITHUB_STEP_SUMMARY
+            echo "**👤 Usuário:** ${{ github.event.inputs.user_email }}" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -n "${{ github.event.inputs.database_name }}" ]; then
+              echo "**🗄️ Banco:** ${{ github.event.inputs.database_name }}" >> $GITHUB_STEP_SUMMARY
+              echo "**📋 Escopo:** Banco específico" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**🗄️ Banco:** Todos os bancos do usuário" >> $GITHUB_STEP_SUMMARY
+              echo "**📋 Escopo:** Completo do usuário" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
           
           echo "**📄 Formato:** ${{ github.event.inputs.output_format }}" >> $GITHUB_STEP_SUMMARY
           echo "**📅 Gerado em:** $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Relatório disponível nos artefatos do workflow." >> $GITHUB_STEP_SUMMARY
-
-  # Job automático para relatórios semanais (apenas quando executado via schedule)
-  weekly-reports:
-    name: 📅 Relatórios Semanais Automáticos
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    if: github.event_name == 'schedule'
-    
-    needs: security-validation
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install Dependencies
-        run: |
-          pip install pyyaml
-
-      - name: Generate Weekly Reports
-        run: |
-          echo "📅 Gerando relatórios semanais automáticos..."
-          
-          # Criar diretório para relatórios
-          mkdir -p weekly-reports
-          
-          # Gerar relatórios para usuários principais (exemplo)
-          users=("gabriel.frantz@empresa.com" "maria.silva@empresa.com")
-          
-          for user in "${users[@]}"; do
-            echo "📊 Gerando relatório para: $user"
-            user_clean=$(echo "$user" | sed 's/@/-at-/g' | sed 's/\./-/g')
-            
-            # Relatório completo em HTML
-            python scripts/generate_audit_reports.py \
-              --user "$user" \
-              --format html \
-              --output "weekly-reports/relatorio-semanal-${user_clean}-$(date +%Y%m%d).html"
-            
-            # Relatório completo em JSON para análise
-            python scripts/generate_audit_reports.py \
-              --user "$user" \
-              --format json \
-              --output "weekly-reports/relatorio-semanal-${user_clean}-$(date +%Y%m%d).json"
-          done
-          
-          echo "✅ Relatórios semanais gerados!"
-
-      - name: Upload Weekly Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: relatorios-semanais-${{ github.run_number }}
-          path: weekly-reports/
-          retention-days: 90

@@ -14,7 +14,7 @@ ENGINES_VALIDOS = ["postgres", "postgresql", "mysql", "aurora"]
 PERMISSOES_VALIDAS_POSTGRES = [
     "SELECT", "INSERT", "UPDATE", "DELETE",
     "TRUNCATE", "REFERENCES", "TRIGGER",
-    "USAGE", "EXECUTE", "CREATE", "TEMP", "ALL PRIVILEGES"
+    "USAGE", "EXECUTE", "CREATE", "TEMP", "CONNECT", "ALL PRIVILEGES"
 ]
 
 PERMISSOES_VALIDAS_MYSQL = [
@@ -126,6 +126,8 @@ def aplicar_permissoes_postgres_granular(conn, username, schema_nome, tabelas):
                         cur.execute(f'GRANT {permissao_upper} ON SCHEMA {schema_nome} TO "{username}";')
                     elif permissao_upper == "TEMP":
                         cur.execute(f'GRANT TEMP ON DATABASE {conn.info.dbname} TO "{username}";')
+                    elif permissao_upper == "CONNECT":
+                        cur.execute(f'GRANT CONNECT ON DATABASE {conn.info.dbname} TO "{username}";')
                 
                 logger.info(f"Aplicada permissão {permissao_upper} na tabela {schema_nome}.{nome_tabela}")
 
@@ -143,6 +145,8 @@ def aplicar_permissoes_postgres_simples(conn, username, schema_nome, permissions
                 cur.execute(f'GRANT {permissao_upper} ON SCHEMA {schema_nome} TO "{username}";')
             elif permissao_upper == "TEMP":
                 cur.execute(f'GRANT TEMP ON DATABASE {conn.info.dbname} TO "{username}";')
+            elif permissao_upper == "CONNECT":
+                cur.execute(f'GRANT CONNECT ON DATABASE {conn.info.dbname} TO "{username}";')
             elif permissao_upper == "ALL PRIVILEGES":
                 cur.execute(f'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema_nome} TO "{username}";')
             
