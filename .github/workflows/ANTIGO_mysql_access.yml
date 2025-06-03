@@ -1,4 +1,4 @@
-name: MySQL - Requerimento de acesso
+/*name: MySQL - Requerimento de acesso
 
 on:
   workflow_dispatch:
@@ -310,4 +310,4 @@ jobs:
           echo "  🔌 Host: ${{ github.event.inputs.host }}"
           echo "  🚪 Porta: ${{ github.event.inputs.port }}"
           echo ""
-          echo "⏳ Aguardando aprovação e merge..."
+          echo "⏳ Aguardando aprovação e merge..."*/
