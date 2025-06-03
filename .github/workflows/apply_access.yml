@@ -198,8 +198,6 @@ jobs:
               fi
               
               echo "✅ Credenciais obtidas do Parameter Store"
-              echo "🔍 Conteúdo do Parameter Store (mascarado):"
-              echo "$config" | sed 's/password=.*/password=***/'
               
               # Extrair credenciais e mascarar IMEDIATAMENTE
               user=$(echo "$config" | grep "^${db}-${engine}-user=" | cut -d'=' -f2-)
@@ -211,11 +209,6 @@ jobs:
 
               if [ -z "$user" ] || [ -z "$pass" ]; then
                 echo "❌ Credenciais não encontradas para ${db}-${engine}"
-                echo "🔍 Chaves procuradas:"
-                echo "   ${db}-${engine}-user="
-                echo "   ${db}-${engine}-password="
-                echo "🔍 Chaves disponíveis no Parameter Store:"
-                echo "$config" | grep "^${db}-${engine}" | sed 's/=.*$/=***/' || echo "   Nenhuma chave encontrada com prefixo ${db}-${engine}"
                 error_count=$((error_count + 1))
                 continue
               fi
@@ -334,11 +327,6 @@ jobs:
 
                 if [ -z "$user" ] || [ -z "$pass" ]; then
                   echo "❌ Credenciais não encontradas para revogação: ${db}-${engine}"
-                  echo "🔍 Chaves procuradas:"
-                  echo "   ${db}-${engine}-user="
-                  echo "   ${db}-${engine}-password="
-                  echo "🔍 Chaves disponíveis no Parameter Store:"
-                  echo "$config" | grep "^${db}-${engine}" | sed 's/=.*$/=***/' || echo "   Nenhuma chave encontrada com prefixo ${db}-${engine}"
                   error_count=$((error_count + 1))
                   continue
                 fi
