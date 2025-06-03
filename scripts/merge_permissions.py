@@ -403,8 +403,11 @@ def main():
                 logger.warning(f"⚠️ Arquivo não encontrado para remoção: {file_path}")
             return
         
-        # Validar e processar JSON de permissões
-        new_permissions = validate_permissions_json(json_string)
+        # Validar JSON de permissões
+        validate_permissions_json(json_string)
+        
+        # Processar JSON de permissões e converter para formato esperado
+        new_permissions = process_permissions_from_json()
         
         # Carregar dados existentes ou criar novos
         data = load_existing_data(file_path)
